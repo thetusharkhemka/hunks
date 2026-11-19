@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="602" height="564" viewBox="0 0 602 564" role="img" aria-label="hunks comparing two versions of a TypeScript file">
+<rect x="0.5" y="0.5" width="601" height="563" rx="8" fill="#0d1117" stroke="#30363d"/>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="13">
+<text x="20.0" y="31" textLength="15.6" lengthAdjust="spacingAndGlyphs" fill="#7d8590" xml:space="preserve">$ </text>
+<text x="35.6" y="31" textLength="148.2" lengthAdjust="spacingAndGlyphs" fill="#e6edf3" xml:space="preserve">hunks old.ts new.ts</text>
+<text x="20.0" y="69" textLength="218.4" lengthAdjust="spacingAndGlyphs" fill="#e6edf3" font-weight="600" xml:space="preserve">diff --git a/old.ts b/new.ts</text>
+<text x="20.0" y="88" textLength="226.2" lengthAdjust="spacingAndGlyphs" fill="#e6edf3" font-weight="600" xml:space="preserve">index 23a88d5..0719f40 100644</text>
+<text x="20.0" y="107" textLength="93.6" lengthAdjust="spacingAndGlyphs" fill="#e6edf3" font-weight="600" xml:space="preserve">--- a/old.ts</text>
+<text x="20.0" y="126" textLength="93.6" lengthAdjust="spacingAndGlyphs" fill="#e6edf3" font-weight="600" xml:space="preserve">+++ b/new.ts</text>
+<text x="20.0" y="145" textLength="117.0" lengthAdjust="spacingAndGlyphs" fill="#79c0ff" xml:space="preserve">@@ -1,7 +1,7 @@</text>
+<text x="20.0" y="164" textLength="366.6" lengthAdjust="spacingAndGlyphs" fill="#ff7b72" xml:space="preserve">-export async function fetchJson(url: string) {</text>
+<text x="20.0" y="183" textLength="249.6" lengthAdjust="spacingAndGlyphs" fill="#ff7b72" xml:space="preserve">-  const res = await fetch(url);</text>
+<text x="20.0" y="202" textLength="343.2" lengthAdjust="spacingAndGlyphs" fill="#7ee787" xml:space="preserve">+export async function fetchJson(url: string</text>
+<rect x="363.2" y="188" width="156.0" height="18" rx="2" fill="rgba(46, 160, 67, 0.32)"/>
+<text x="363.2" y="202" textLength="156.0" lengthAdjust="spacingAndGlyphs" fill="#7ee787" xml:space="preserve">, init?: RequestInit</text>
+<text x="519.2" y="202" textLength="23.4" lengthAdjust="spacingAndGlyphs" fill="#7ee787" xml:space="preserve">) {</text>
+<text x="20.0" y="221" textLength="234.0" lengthAdjust="spacingAndGlyphs" fill="#7ee787" xml:space="preserve">+  const res = await fetch(url</text>
+<rect x="254.0" y="207" width="46.8" height="18" rx="2" fill="rgba(46, 160, 67, 0.32)"/>
+<text x="254.0" y="221" textLength="46.8" lengthAdjust="spacingAndGlyphs" fill="#7ee787" xml:space="preserve">, init</text>
+<text x="300.8" y="221" textLength="15.6" lengthAdjust="spacingAndGlyphs" fill="#7ee787" xml:space="preserve">);</text>
+<text x="20.0" y="240" textLength="132.6" lengthAdjust="spacingAndGlyphs" fill="#e6edf3" xml:space="preserve">   if (!res.ok) {</text>
+<text x="20.0" y="259" textLength="421.2" lengthAdjust="spacingAndGlyphs" fill="#ff7b72" xml:space="preserve">-    throw new Error(`Request failed: ${res.status}`);</text>
+<text x="20.0" y="278" textLength="397.8" lengthAdjust="spacingAndGlyphs" fill="#7ee787" xml:space="preserve">+    throw new Error(`Request failed: ${res.status}</text>
+<rect x="417.8" y="264" width="140.4" height="18" rx="2" fill="rgba(46, 160, 67, 0.32)"/>
+<text x="417.8" y="278" textLength="140.4" lengthAdjust="spacingAndGlyphs" fill="#7ee787" xml:space="preserve"> ${res.statusText}</text>
+<text x="558.2" y="278" textLength="23.4" lengthAdjust="spacingAndGlyphs" fill="#7ee787" xml:space="preserve">`);</text>
+<text x="20.0" y="297" textLength="31.2" lengthAdjust="spacingAndGlyphs" fill="#e6edf3" xml:space="preserve">   }</text>
+<text x="20.0" y="316" textLength="163.8" lengthAdjust="spacingAndGlyphs" fill="#e6edf3" xml:space="preserve">   return res.json();</text>
+<text x="20.0" y="335" textLength="15.6" lengthAdjust="spacingAndGlyphs" fill="#e6edf3" xml:space="preserve"> }</text>
+<text x="20.0" y="354" textLength="140.4" lengthAdjust="spacingAndGlyphs" fill="#79c0ff" xml:space="preserve">@@ -10,6 +10,10 @@</text>
+<text x="160.4" y="354" textLength="312.0" lengthAdjust="spacingAndGlyphs" fill="#e6edf3" xml:space="preserve"> export function cacheKey(url: string) {</text>
+<text x="20.0" y="373" textLength="171.6" lengthAdjust="spacingAndGlyphs" fill="#e6edf3" xml:space="preserve">   return `v1:${url}`;</text>
+<text x="20.0" y="392" textLength="15.6" lengthAdjust="spacingAndGlyphs" fill="#e6edf3" xml:space="preserve"> }</text>
+<text x="20.0" y="430" textLength="358.8" lengthAdjust="spacingAndGlyphs" fill="#7ee787" xml:space="preserve">+export function isRetryable(status: number) {</text>
+<text x="20.0" y="449" textLength="327.6" lengthAdjust="spacingAndGlyphs" fill="#7ee787" xml:space="preserve">+  return status === 429 || status &gt;= 500;</text>
+<text x="20.0" y="468" textLength="15.6" lengthAdjust="spacingAndGlyphs" fill="#7ee787" xml:space="preserve">+}</text>
+<text x="20.0" y="487" textLength="7.8" lengthAdjust="spacingAndGlyphs" fill="#7ee787" xml:space="preserve">+</text>
+<text x="20.0" y="506" textLength="358.8" lengthAdjust="spacingAndGlyphs" fill="#e6edf3" xml:space="preserve"> export function retryDelay(attempt: number) {</text>
+<text x="20.0" y="525" textLength="366.6" lengthAdjust="spacingAndGlyphs" fill="#e6edf3" xml:space="preserve">   return Math.min(1000 * 2 ** attempt, 30000);</text>
+<text x="20.0" y="544" textLength="15.6" lengthAdjust="spacingAndGlyphs" fill="#e6edf3" xml:space="preserve"> }</text>
+</g>
+</svg>

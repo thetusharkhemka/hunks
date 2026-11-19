@@ -1,0 +1,28 @@
+name: Release
+
+# Publishes to npm when a version tag is pushed, with provenance, through
+# npm trusted publishing: configure this repository and workflow under the
+# package's settings on npmjs.com, and no token is needed.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm publish --provenance --access public

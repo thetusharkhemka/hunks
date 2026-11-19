@@ -164,8 +164,9 @@ function funcMatcher(option: HunkOptions['funcname']): FuncMatcher | null {
   if (option instanceof RegExp) {
     const re = option;
     return (side, i) => {
+      // As git does, match without the line break ("\n" or "\r\n").
       let line = recordContent(side, i);
-      if (line.endsWith('\r')) line = line.slice(0, -1);
+      if (line.endsWith('\r') && side.starts[i + 1] - side.starts[i] > line.length) line = line.slice(0, -1);
       re.lastIndex = 0;
       const m = re.exec(line);
       if (!m) return null;
@@ -206,6 +207,8 @@ function prepare(oldInput: Input, newInput: Input, options: HunkOptions): Prepar
 }
 
 function header(h: RawHunk, bytes: boolean): string {
+  // Only the first 80 bytes of a heading can reach the header; 81 UTF-16
+  // units always cover them, including a surrogate pair at the boundary.
   const heading = h.heading === null ? null : headingBytes(h.heading.slice(0, bytes ? 80 : 81), bytes);
   return hunkHeader(h.s1 + 1, h.e1 - h.s1, h.s2 + 1, h.e2 - h.s2, heading, bytes);
 }
@@ -225,7 +228,9 @@ export function patch(oldText: Input, newText: Input, options: PatchOptions = {}
   const { a, b, raw, hunks, bytes } = prepare(oldText, newText, options);
   let out = '';
   if (hunks.length > 0 && (options.fromFile !== undefined || options.toFile !== undefined)) {
-    out += `--- ${options.fromFile ?? options.toFile}\n+++ ${options.toFile ?? options.fromFile}\n`;
+    const names = `--- ${options.fromFile ?? options.toFile}\n+++ ${options.toFile ?? options.fromFile}\n`;
+    // In byte mode every char is a byte, so names go in as UTF-8.
+    out += bytes ? fromBytes(new TextEncoder().encode(names), true) : names;
   }
   const parts: string[] = [];
   for (const h of hunks) {

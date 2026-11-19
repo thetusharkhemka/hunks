@@ -25,6 +25,13 @@ const TOKEN = /[\p{L}\p{M}\p{N}_]+|[^\S\n]+|\n|[\s\S]/gu;
  */
 const REWRITE_THRESHOLD = 0.6;
 
+/**
+ * Blocks larger than this (in tokens, both sides together) are left without
+ * highlights: nobody reads word-level emphasis across thousands of lines,
+ * and it bounds the cost on huge rewrites.
+ */
+const MAX_TOKENS = 50_000;
+
 function tokenize(lines: readonly string[]): string[] {
   const tokens: string[] = [];
   for (let i = 0; i < lines.length; i++) {
@@ -46,6 +53,9 @@ function sequenceSide(ids: Int32Array): Side {
 export function inlineSpans(removed: readonly string[], added: readonly string[]): { removed: Span[][]; added: Span[][] } {
   const ta = tokenize(removed);
   const tb = tokenize(added);
+  if (ta.length + tb.length > MAX_TOKENS) {
+    return { removed: removed.map(() => []), added: added.map(() => []) };
+  }
 
   const table = new Map<string, number>();
   const intern = (t: string): number => {

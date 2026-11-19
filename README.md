@@ -1,0 +1,207 @@
+# hunks
+
+**git's diff engine, in TypeScript.**
+
+hunks produces the same diffs as `git diff`, byte for byte: the same algorithms (Myers with git's heuristics, patience, histogram), the same placement of ambiguous changes, the same hunk headers. No dependencies, no child processes, no WebAssembly. It runs in Node, Bun, Deno and the browser.
+
+<p align="center">
+  <img src="https://cdn.jsdelivr.net/npm/hunks@1/media/demo.svg" alt="hunks comparing two versions of a TypeScript file, with changed words highlighted" width="602">
+</p>
+
+```sh
+npm install hunks
+```
+
+```js
+import { patch } from 'hunks';
+
+patch('function add(a, b) {\n  return a + b;\n}\n', 'function add(a, b) {\n  return a + b + 0;\n}\n');
+// @@ -1,3 +1,3 @@
+//  function add(a, b) {
+// -  return a + b;
+// +  return a + b + 0;
+//  }
+```
+
+## Why
+
+Most JavaScript diff libraries implement Myers' 1986 algorithm as published. It finds a smallest diff, but when there are several (there usually are), which one you get is an accident of the implementation. git spent a decade on this:
+
+- It sets aside lines that cannot match before searching, and caps the cost of the search, so large rewrites stay fast.
+- It slides ambiguous blocks of added or removed lines to where a person would put them. Michael Haggerty fitted this *indent heuristic* to 6,668 hand-rated cases from 29 projects: git's previous placement was wrong 65.9% of the time, the heuristic 2.2% ([git 433860f](https://github.com/git/git/commit/433860f3d0beb0c6f205290bd16cda413148f098)).
+- It adopted histogram diff, which researchers found gives better diffs of source code, and recommend for it ([Nugroho, Hata & Matsumoto, 2020](https://doi.org/10.1007/s10664-019-09772-z)).
+
+None of that reached JavaScript. Across 634 changed files from 20 popular npm releases, [`diff`](https://www.npmjs.com/package/diff) (jsdiff, around 195 million downloads a week) disagrees with git on 125, about one in five. Here is one, from Express 5.1.0. jsdiff:
+
+```diff
+ 
+ /**
++ * A list of lowercased HTTP methods that are supported by Node.js.
++ * @api private
++ */
++exports.methods = METHODS.map((method) => method.toLowerCase());
++
++/**
+  * Return strong ETag for `body`.
+```
+
+git, and hunks:
+
+```diff
+ var querystring = require('querystring');
+ 
++/**
++ * A list of lowercased HTTP methods that are supported by Node.js.
++ * @api private
++ */
++exports.methods = METHODS.map((method) => method.toLowerCase());
++
+ /**
+  * Return strong ETag for `body`.
+```
+
+Both are correct. Only the second shows what the author did: jsdiff's version starts the new comment from its second line and takes the opening `/**` of the next one.
+
+Then there is speed. Between react-dom 19.0 and 19.1, the 24,717-line client build was largely rewritten. jsdiff takes 11.6 seconds to diff it. hunks takes 106 ms, or 30 ms with histogram.
+
+The usual way out is to spawn git. The [`git-diff`](https://www.npmjs.com/package/git-diff) package, with about 900,000 weekly downloads, does exactly that, which rules out browsers, edge runtimes and sandboxes.
+
+## Verified against git
+
+Parity is not a goal, it is a test. The suite runs the git binary on the same input and compares bytes:
+
+- **Real code.** 634 changed files from consecutive releases of express, eslint, webpack, react-dom, typescript, three, vue, lodash and others, under 11 option sets. All identical.
+- **Generated code.** 50,000 cases built to break diff engines: heavy duplication, sliding blocks, CRLF, missing final newlines, invalid UTF-8, multibyte function names at the 80-byte header limit, and random combinations of every option. All identical.
+- **The corners.** Behaviour found by reading git's source: with `-U0` git trims the common tail in 1 KiB blocks before diffing, which can move where a change lands; hunk headers are cut at the first byte sequence git does not accept as UTF-8; `--ignore-blank-lines` counts a final one-byte line as blank. hunks does all of it.
+
+CI repeats this against the git on each runner. hunks follows current git; see [Compatibility](#compatibility) for the three details that changed after git 2.43.
+
+## API
+
+### `patch(oldText, newText, options?)`
+
+A unified diff, exactly what `git diff --no-index` prints below its header lines. Empty when the inputs are equal.
+
+```js
+patch('a\nb\n', 'a\nc\n', { fromFile: 'a/notes.txt', toFile: 'b/notes.txt' });
+// --- a/notes.txt
+// +++ b/notes.txt
+// @@ -1,2 +1,2 @@
+//  a
+// -b
+// +c
+```
+
+Strings in, string out. Pass two `Uint8Array`s to work on raw bytes and get bytes back; then even files that are not valid UTF-8 come out exactly as git prints them.
+
+### `diff(oldText, newText, options?)`
+
+The same hunks as structured data, for rendering.
+
+```js
+const { hunks, added, removed } = diff(before, after, { inline: true });
+
+for (const hunk of hunks) {
+  hunk.header;   // '@@ -10,6 +10,10 @@ export function cacheKey(url: string) {'
+  hunk.heading;  // 'export function cacheKey(url: string) {'
+  for (const line of hunk.lines) {
+    line.type;       // 'context' | 'removed' | 'added'
+    line.text;       // without the line break
+    line.oldNumber;  // 1-based, or null for added lines
+    line.newNumber;  // 1-based, or null for removed lines
+    line.newline;    // false for a last line without a line break
+    line.spans;      // with inline: true, the changed parts: [[start, end], ...]
+  }
+}
+```
+
+With `inline: true`, removed and added lines carry `spans`: the parts that changed, as `[start, end)` offsets into `text`. They come from diffing the words of a whole block of removed lines against the block of added lines, so lines pair up correctly even when they were split, joined or reordered. A line that is new, or too different from anything on the other side for highlighting to help, gets no spans; so does every line of a block too large to read word by word (over 50,000 words and symbols).
+
+### `edits(oldText, newText, options?)`
+
+The raw edit script: 0-based, end-exclusive line ranges, ready for `slice()`.
+
+```js
+edits('a\nb\nc\n', 'a\nx\nc\nd\n');
+// [ { oldStart: 1, oldEnd: 2, newStart: 1, newEnd: 2 },
+//   { oldStart: 3, oldEnd: 3, newStart: 3, newEnd: 4 } ]
+```
+
+### `diffArrays(oldItems, newItems, options?)`
+
+The same engine for any two sequences. Elements are compared with `===`, or through `key`.
+
+```js
+diffArrays(oldRows, newRows, { key: (row) => row.id, algorithm: 'histogram' });
+```
+
+### `inline(removedLines, addedLines)`
+
+The word-level highlighting on its own, for when you have your own line diff.
+
+### Options
+
+Every option maps to a `git diff` flag.
+
+| option | git | default |
+| --- | --- | --- |
+| `algorithm` | `--diff-algorithm` | `'myers'`; also `'minimal'`, `'patience'`, `'histogram'` |
+| `indentHeuristic` | `--[no-]indent-heuristic` | `true` |
+| `context` | `-U` | `3` |
+| `interHunkContext` | `--inter-hunk-context` | `0` |
+| `functionContext` | `-W` | `false` |
+| `ignoreWhitespace` | `-w` | `false` |
+| `ignoreWhitespaceChange` | `-b` | `false` |
+| `ignoreWhitespaceAtEol` | `--ignore-space-at-eol` | `false` |
+| `ignoreCrAtEol` | `--ignore-cr-at-eol` | `false` |
+| `ignoreBlankLines` | `--ignore-blank-lines` | `false` |
+| `ignoreMatchingLines` | `-I` | none; a `RegExp` or an array of them |
+| `anchored` | `--anchored` | none; a string or an array; implies patience |
+| `funcname` | `diff.<driver>.xfuncname` | git's default: the nearest line above that starts with a letter, `_` or `$`. A `RegExp` (first capture group, else the match), a function `(line) => string \| null`, or `false` |
+
+`patch` also takes `fromFile` and `toFile` for the `---` and `+++` lines; `diff` takes `inline`.
+
+Which algorithm? `myers` is git's default and what people are used to seeing. `histogram` is usually faster here and often clearer on code; it is what we would pick for a code review tool.
+
+## Command line
+
+```sh
+npx hunks old.ts new.ts
+npx hunks --histogram -U5 -w before.json after.json
+```
+
+The flags are git's. Without colour, the output is exactly that of `git diff --no-index`, header lines and all (blob ids, modes, quoted paths, binary files, `/dev/null`), and so is the exit code: 1 when the files differ, 0 when not, 2 on errors. With colour it highlights changed words and trailing whitespace. `hunks --help` lists everything.
+
+## Benchmarks
+
+Median time per diff, in a fresh process per measurement. Files are real: the same file in two consecutive releases of the package.
+
+| | hunks | hunks histogram | diff (jsdiff) | @jest/diff-sequences | fast-myers-diff | diff-match-patch | vscode-diff | @vscode/diff |
+| --- | --: | --: | --: | --: | --: | --: | --: | --: |
+| express response.js, 1,180 lines | 1.6 ms | 1.5 ms | 5.4 ms | 1.0 ms | 4.0 ms | 1.9 ms | 18 ms | 18 ms |
+| lodash.js, 17,162 lines, one fix | 8.4 ms | 8.2 ms | 10 ms | 13 ms | 12 ms | 13 ms | 19 ms | 17 ms |
+| jquery.js, 10,882 lines | 8.1 ms | 12 ms | 279 ms | 35 ms | 41 ms | 44 ms | 325 ms | 328 ms |
+| react-dom client, 24,717 lines, rewritten | 106 ms | 30 ms | 11.6 s | 768 ms | 1.3 s | 1.2 s | 13.8 s | 15.2 s |
+| three.js WebGPU build, 63,634 lines | 78 ms | 65 ms | 6.8 s | 638 ms | 778 ms | 786 ms | 1.9 s | 1.9 s |
+
+hunks' times include producing the full unified patch. @jest/diff-sequences, fast-myers-diff and diff-match-patch only compute an edit script, and the two VS Code libraries also refine changes down to characters, so this is not like for like; it is what you get from each. @vscode/diff was measured with its TypeScript backend, since its WebAssembly one panics in version 0.0.2-0. Node 22.23, Intel Xeon at 2.1 GHz. To reproduce: `cd bench && npm install --ignore-scripts && node bench.ts`.
+
+## Compatibility
+
+- **git versions.** hunks follows current git. Three details changed after git 2.43, all in uncommon situations: `--minimal` stopped setting aside lines that occur very often (2.50); histogram re-diffs blocks that were merged while sliding (2.54); and `--anchored` tests the anchor against the new side's line (2.54). The test suite checks both behaviours against whichever git it finds.
+- **Text and bytes.** Strings are compared as UTF-16 text and headers are cut on UTF-8 byte counts, as git does. For byte-exact output on input that is not valid UTF-8, pass `Uint8Array`s.
+- **Function names.** The default rule is git's. git's language-specific patterns come from attributes in a repository; pass `funcname` a `RegExp` for the same effect.
+- **Index lines.** The CLI abbreviates blob ids to 7 characters, as git does outside a repository. Inside a large repository git may use more.
+- **Runtimes.** Node 20 and later, Bun, Deno and current browsers. The package is ESM; `require()` works in Node 20.19+ and 22.12+.
+
+Not covered: rename and copy detection, `--color-moved`, `--word-diff` output, binary patches, and applying patches.
+
+## Credits
+
+The ideas are other people's. Eugene W. Myers, *An O(ND) Difference Algorithm and Its Variations* (1986). Davide Libenzi's LibXDiff, which became git's xdiff, and the git contributors who have improved it since. Michael Haggerty's indent heuristic. Bram Cohen's patience diff. Histogram diff from JGit, by Shawn Pearce and others.
+
+hunks is an independent implementation in TypeScript. git's source was the reference for its behaviour and the git binary is the oracle in its tests; no git code is included. The histogram implementation follows JGit's design, which is available under the Eclipse Distribution License; see [NOTICE](./NOTICE).
+
+## License
+
+MIT
