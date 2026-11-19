@@ -33,7 +33,8 @@
   },
   "files": [
     "dist",
-    "NOTICE"
+    "NOTICE",
+    "media/demo.svg"
   ],
   "sideEffects": false,
   "engines": {

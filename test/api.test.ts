@@ -228,3 +228,16 @@ describe('inline', () => {
     assert.deepEqual(removed[1], [[5, 6]]);
   });
 });
+
+describe('edge cases', () => {
+  test('non-ASCII file names survive byte mode', () => {
+    const out = patch(new TextEncoder().encode('a\n'), new TextEncoder().encode('b\n'), { fromFile: 'a/café.txt', toFile: 'b/café.txt' });
+    assert.equal(new TextDecoder().decode(out), '--- a/café.txt\n+++ b/café.txt\n@@ -1 +1 @@\n-a\n+b\n');
+  });
+
+  test('a funcname pattern sees lines without their CRLF', () => {
+    const a = 'sub run\r\n  x\r\n  y\r\n  z\r\n  w\r\n';
+    const b = 'sub run\r\n  x\r\n  y\r\n  z\r\n  W\r\n';
+    assert.match(patch(a, b, { funcname: /^sub (\w+)$/ }), /^@@ -2,4 \+2,4 @@ run\n/);
+  });
+});
