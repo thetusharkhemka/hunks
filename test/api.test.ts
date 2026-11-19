@@ -230,9 +230,10 @@ describe('inline', () => {
 });
 
 describe('edge cases', () => {
-  test('non-ASCII file names survive byte mode', () => {
+  test('labels are quoted as git quotes paths, in text and byte mode', () => {
     const out = patch(new TextEncoder().encode('a\n'), new TextEncoder().encode('b\n'), { fromFile: 'a/café.txt', toFile: 'b/café.txt' });
-    assert.equal(new TextDecoder().decode(out), '--- a/café.txt\n+++ b/café.txt\n@@ -1 +1 @@\n-a\n+b\n');
+    assert.equal(new TextDecoder().decode(out), '--- "a/caf\\303\\251.txt"\n+++ "b/caf\\303\\251.txt"\n@@ -1 +1 @@\n-a\n+b\n');
+    assert.equal(patch('a\n', 'b\n', { fromFile: 'a/café.txt' }).split('\n')[0], '--- "a/caf\\303\\251.txt"');
   });
 
   test('a funcname pattern sees lines without their CRLF', () => {

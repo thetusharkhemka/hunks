@@ -6,7 +6,8 @@
  */
 
 import type { Side } from './lines.ts';
-import { myers, type MyersEnv } from './myers.ts';
+import type { Env } from './env.ts';
+import { myers } from './myers.ts';
 
 const NON_UNIQUE = -1;
 
@@ -24,7 +25,7 @@ export interface PatienceContext {
   ca: Uint8Array;
   cb: Uint8Array;
   needMin: boolean;
-  env: MyersEnv;
+  env: Env;
   /** Lines starting with one of these must stay in the common sequence. */
   anchors: readonly string[];
   /** Before git 2.54 the anchor test looked at the first side's line. */
@@ -45,6 +46,7 @@ export function patience(ctx: PatienceContext, line1: number, count1: number, li
 
 function step(ctx: PatienceContext, line1: number, count1: number, line2: number, count2: number, work: number[]): void {
   const { a, b, ca, cb } = ctx;
+  ctx.env.check();
   if (count1 === 0) {
     for (let i = 0; i < count2; i++) cb[line2 + i] = 1;
     return;
