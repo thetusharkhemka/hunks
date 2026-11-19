@@ -1,6 +1,6 @@
 {
   "name": "@thetusharkhemka/hunks",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "git's diff engine in TypeScript: output byte-identical to git diff, with Myers, patience, histogram and the indent heuristic. Zero dependencies.",
   "keywords": [
     "diff",

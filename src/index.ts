@@ -8,7 +8,7 @@ import { compat } from './core/compat.ts';
 import { defaultFuncname, emit, type EmitOptions, type FuncMatcher, type RawHunk } from './core/emit.ts';
 import { buildScript, diffSides, run, trimCommonTail, type Algorithm, type EngineOptions } from './core/engine.ts';
 import { recordContent, type Side } from './core/lines.ts';
-import { fromBytes, headingBytes, hunkHeader } from './core/utf8.ts';
+import { byteString, fromBytes, headingBytes, hunkHeader, textOf } from './core/utf8.ts';
 import { CONTEXT, REMOVED, walkHunk } from './core/walk.ts';
 import { inlineSpans, type Span } from './inline.ts';
 
@@ -124,9 +124,19 @@ export interface Diff {
 
 type Input = string | Uint8Array;
 
-function toText(input: Input): string {
-  return typeof input === 'string' ? input : fromBytes(input, true);
+function checkInput(input: unknown, which: string): asserts input is Input {
+  if (typeof input !== 'string' && !(input instanceof Uint8Array)) {
+    throw new TypeError(`hunks: ${which} must be a string or a Uint8Array, got ${input === null ? 'null' : typeof input}`);
+  }
 }
+
+/** In byte mode every char is one byte, so strings go in as UTF-8. */
+function toText(input: Input, bytes: boolean): string {
+  if (typeof input === 'string') return bytes ? byteString(input) : input;
+  return fromBytes(input, true);
+}
+
+const utf8 = new TextDecoder();
 
 function list<T>(value: T | readonly T[] | undefined): readonly T[] {
   if (value === undefined) return [];
@@ -141,7 +151,7 @@ function count(value: number | undefined, fallback: number, name: string): numbe
 
 const ALGORITHMS: readonly string[] = ['myers', 'minimal', 'patience', 'histogram'];
 
-function engineOptions(options: DiffOptions): EngineOptions {
+function engineOptions(options: DiffOptions, bytes: boolean): EngineOptions {
   const algorithm = options.algorithm ?? 'myers';
   if (!ALGORITHMS.includes(algorithm)) throw new TypeError(`hunks: unknown algorithm '${algorithm}'`);
   return {
@@ -153,30 +163,40 @@ function engineOptions(options: DiffOptions): EngineOptions {
     ignoreCrAtEol: !!options.ignoreCrAtEol,
     ignoreBlankLines: !!options.ignoreBlankLines,
     ignoreMatchingLines: list(options.ignoreMatchingLines),
-    anchors: list(options.anchored),
+    anchors: bytes ? list(options.anchored).map(byteString) : list(options.anchored),
     git: compat.git,
   };
 }
 
-function funcMatcher(option: HunkOptions['funcname']): FuncMatcher | null {
+function funcMatcher(option: HunkOptions['funcname'], bytes: boolean): FuncMatcher | null {
   if (option === false) return null;
   if (option === undefined || option === true) return defaultFuncname;
+  // A pattern or function works on text; in byte mode the line is decoded
+  // for it and its answer encoded again.
+  const line = (side: Side, i: number): string => {
+    const raw = recordContent(side, i);
+    return bytes ? textOf(raw) : raw;
+  };
+  const back = (h: string): string => (bytes ? byteString(h) : h);
   if (option instanceof RegExp) {
     const re = option;
     return (side, i) => {
       // As git does, match without the line break ("\n" or "\r\n").
-      let line = recordContent(side, i);
-      if (line.endsWith('\r') && side.starts[i + 1] - side.starts[i] > line.length) line = line.slice(0, -1);
+      let text = line(side, i);
+      if (text.endsWith('\r') && side.starts[i + 1] - side.starts[i] > recordContent(side, i).length) text = text.slice(0, -1);
       re.lastIndex = 0;
-      const m = re.exec(line);
+      const m = re.exec(text);
       if (!m) return null;
-      return m.length > 1 && m[1] !== undefined ? m[1] : m[0];
+      return back(m.length > 1 && m[1] !== undefined ? m[1] : m[0]);
     };
   }
+  if (typeof option !== 'function') throw new TypeError('hunks: funcname must be a boolean, a RegExp or a function');
   const fn = option;
   return (side, i) => {
-    const h = fn(recordContent(side, i));
-    return h === null || h === undefined ? null : h;
+    const h = fn(line(side, i));
+    if (h === null || h === undefined) return null;
+    if (typeof h !== 'string') throw new TypeError('hunks: a funcname function must return a string, null or undefined');
+    return back(h);
   };
 }
 
@@ -189,19 +209,21 @@ interface Prepared {
 }
 
 function prepare(oldInput: Input, newInput: Input, options: HunkOptions): Prepared {
+  checkInput(oldInput, 'the old text');
+  checkInput(newInput, 'the new text');
   const bytes = typeof oldInput !== 'string' || typeof newInput !== 'string';
-  let textA = toText(oldInput);
-  let textB = toText(newInput);
+  let textA = toText(oldInput, bytes);
+  let textB = toText(newInput, bytes);
   const emitOptions: EmitOptions = {
     context: count(options.context, 3, 'context'),
     interHunkContext: count(options.interHunkContext, 0, 'interHunkContext'),
     functionContext: !!options.functionContext,
-    funcname: funcMatcher(options.funcname),
+    funcname: funcMatcher(options.funcname, bytes),
   };
   if (emitOptions.context === 0 && !emitOptions.functionContext) {
     [textA, textB] = trimCommonTail(textA, textB, bytes);
   }
-  const raw = run(textA, textB, engineOptions(options), bytes);
+  const raw = run(textA, textB, engineOptions(options, bytes), bytes);
   const hunks = emit(raw.a, raw.b, raw.changes, emitOptions);
   return { a: raw.a, b: raw.b, raw, hunks, bytes };
 }
@@ -224,13 +246,15 @@ const NO_NEWLINE = '\n\\ No newline at end of file\n';
  */
 export function patch(oldText: string, newText: string, options?: PatchOptions): string;
 export function patch(oldText: Uint8Array, newText: Uint8Array, options?: PatchOptions): Uint8Array;
+/** If either side is bytes, the result is bytes. */
+export function patch(oldText: string | Uint8Array, newText: string | Uint8Array, options?: PatchOptions): string | Uint8Array;
 export function patch(oldText: Input, newText: Input, options: PatchOptions = {}): string | Uint8Array {
   const { a, b, raw, hunks, bytes } = prepare(oldText, newText, options);
   let out = '';
   if (hunks.length > 0 && (options.fromFile !== undefined || options.toFile !== undefined)) {
     const names = `--- ${options.fromFile ?? options.toFile}\n+++ ${options.toFile ?? options.fromFile}\n`;
     // In byte mode every char is a byte, so names go in as UTF-8.
-    out += bytes ? fromBytes(new TextEncoder().encode(names), true) : names;
+    out += bytes ? byteString(names) : names;
   }
   const parts: string[] = [];
   for (const h of hunks) {
@@ -252,8 +276,15 @@ export function patch(oldText: Input, newText: Input, options: PatchOptions = {}
  * The hunks of a diff, ready to render: every line with its type, text and
  * line numbers, and with `inline: true` the changed words within lines.
  */
-export function diff(oldText: string, newText: string, options: DiffResultOptions = {}): Diff {
-  const { a, b, raw, hunks } = prepare(oldText, newText, options);
+export function diff(oldText: string | Uint8Array, newText: string | Uint8Array, options: DiffResultOptions = {}): Diff {
+  checkInput(oldText, 'the old text');
+  checkInput(newText, 'the new text');
+  // Structured output is for display, so bytes are read as UTF-8 text.
+  const { a, b, raw, hunks } = prepare(
+    typeof oldText === 'string' ? oldText : utf8.decode(oldText),
+    typeof newText === 'string' ? newText : utf8.decode(newText),
+    options,
+  );
   const result: Diff = { hunks: [], added: 0, removed: 0 };
   for (const h of hunks) {
     const lines: Line[] = [];
@@ -313,7 +344,10 @@ function addSpans(lines: Line[]): void {
 
 /** The line-level edit script that turns `oldText` into `newText`. */
 export function edits(oldText: Input, newText: Input, options: DiffOptions = {}): Edit[] {
-  const raw = run(toText(oldText), toText(newText), engineOptions(options), typeof oldText !== 'string');
+  checkInput(oldText, 'the old text');
+  checkInput(newText, 'the new text');
+  const bytes = typeof oldText !== 'string' || typeof newText !== 'string';
+  const raw = run(toText(oldText, bytes), toText(newText, bytes), engineOptions(options, bytes), bytes);
   return raw.changes.map((c) => ({ oldStart: c.i1, oldEnd: c.i1 + c.chg1, newStart: c.i2, newEnd: c.i2 + c.chg2 }));
 }
 

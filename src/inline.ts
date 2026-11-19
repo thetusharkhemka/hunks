@@ -106,6 +106,8 @@ function cleanup(ta: string[], ca: Uint8Array, tb: string[], cb: Uint8Array): vo
       i++;
       j++;
     }
+    // Unchanged tokens pair up one to one, so this always advances; guard anyway.
+    if (i === startA && j === startB) break;
     const changedAfter = (i < ta.length && ca[i + 1] === 1) || (j < tb.length && cb[j + 1] === 1);
     if (blank && changedBefore && changedAfter) {
       for (let k = startA; k < i; k++) ca[k + 1] = 1;

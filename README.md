@@ -71,10 +71,10 @@ The usual way out is to spawn git. The [`git-diff`](https://www.npmjs.com/packag
 Parity is not a goal, it is a test. The suite runs the git binary on the same input and compares bytes:
 
 - **Real code.** 634 changed files from consecutive releases of express, eslint, webpack, react-dom, typescript, three, vue, lodash and others, under 11 option sets. All identical.
-- **Generated code.** 50,000 cases built to break diff engines: heavy duplication, sliding blocks, CRLF, missing final newlines, invalid UTF-8, multibyte function names at the 80-byte header limit, and random combinations of every option. All identical.
+- **Generated code.** 98,000 cases built to break diff engines: heavy duplication, sliding blocks, CRLF, missing final newlines, invalid UTF-8, multibyte function names at the 80-byte header limit, and random combinations of every option. All identical.
 - **The corners.** Behaviour found by reading git's source: with `-U0` git trims the common tail in 1 KiB blocks before diffing, which can move where a change lands; hunk headers are cut at the first byte sequence git does not accept as UTF-8; `--ignore-blank-lines` counts a final one-byte line as blank. hunks does all of it.
 
-CI repeats this against the git on each runner. hunks follows current git; see [Compatibility](#compatibility) for the three details that changed after git 2.43.
+On the same real files, string input is checked against git's output too, `diff()` is checked to rebuild exactly into `patch()`'s text, and `edits()` to turn every old file into the new one. The test suite repeats the comparisons against whichever git is installed, so parity can be re-checked on any machine. hunks follows current git; see [Compatibility](#compatibility) for the three details that changed after git 2.43.
 
 ## API
 
@@ -92,11 +92,11 @@ patch('a\nb\n', 'a\nc\n', { fromFile: 'a/notes.txt', toFile: 'b/notes.txt' });
 // +c
 ```
 
-Strings in, string out. Pass two `Uint8Array`s to work on raw bytes and get bytes back; then even files that are not valid UTF-8 come out exactly as git prints them.
+Strings in, string out. Pass `Uint8Array`s to work on raw bytes and get bytes back; then even files that are not valid UTF-8 come out exactly as git prints them. If only one side is bytes, the other is taken as UTF-8 and the result is bytes.
 
 ### `diff(oldText, newText, options?)`
 
-The same hunks as structured data, for rendering.
+The same hunks as structured data, for rendering. `Uint8Array` input is read as UTF-8.
 
 ```js
 const { hunks, added, removed } = diff(before, after, { inline: true });
@@ -161,7 +161,7 @@ Every option maps to a `git diff` flag.
 
 `patch` also takes `fromFile` and `toFile` for the `---` and `+++` lines; `diff` takes `inline`.
 
-Which algorithm? `myers` is git's default and what people are used to seeing. `histogram` is usually faster here and often clearer on code; it is what we would pick for a code review tool.
+Which algorithm? `myers` is git's default and what people are used to seeing. `histogram` is much faster on large rewrites (see the benchmarks) and often clearer on code; it is what we would pick for a code review tool.
 
 ## Command line
 
@@ -172,7 +172,7 @@ npx @thetusharkhemka/hunks old.ts new.ts
 npx @thetusharkhemka/hunks --histogram -U5 -w before.json after.json
 ```
 
-The flags are git's. Without colour, the output is exactly that of `git diff --no-index`, header lines and all (blob ids, modes, quoted paths, binary files, `/dev/null`), and so is the exit code: 1 when the files differ, 0 when not, 2 on errors. With colour it highlights changed words and trailing whitespace. `hunks --help` lists everything.
+The flags are git's, bundles like `-wU1` included. Without colour, the output is exactly that of `git diff --no-index`, header lines and all (blob ids, modes, quoted paths, symbolic links, standard input as `-`, binary files, `/dev/null`), and so is the exit code: 1 when the files differ, 0 when they do not. Errors exit with 2, where git uses 1 or 129. `--quiet` prints nothing and only sets the exit code. With colour, changed words and trailing whitespace are highlighted. hunks compares two files; unlike git, it does not walk directories. `hunks --help` lists everything.
 
 ## Benchmarks
 
@@ -191,12 +191,12 @@ hunks' times include producing the full unified patch. @jest/diff-sequences, fas
 ## Compatibility
 
 - **git versions.** hunks follows current git. Three details changed after git 2.43, all in uncommon situations: `--minimal` stopped setting aside lines that occur very often (2.50); histogram re-diffs blocks that were merged while sliding (2.54); and `--anchored` tests the anchor against the new side's line (2.54). The test suite checks both behaviours against whichever git it finds.
-- **Text and bytes.** Strings are compared as UTF-16 text and headers are cut on UTF-8 byte counts, as git does. For byte-exact output on input that is not valid UTF-8, pass `Uint8Array`s.
+- **Text and bytes.** Strings are compared as UTF-16 text and headers are cut on UTF-8 byte counts, as git does. For byte-exact output on input that is not valid UTF-8, pass `Uint8Array`s. Options written as text (`anchored`, `ignoreMatchingLines`, `funcname`) behave the same either way.
 - **Function names.** The default rule is git's. git's language-specific patterns come from attributes in a repository; pass `funcname` a `RegExp` for the same effect.
 - **Index lines.** The CLI abbreviates blob ids to 7 characters, as git does outside a repository. Inside a large repository git may use more.
 - **Runtimes.** Node 20 and later, Bun, Deno and current browsers. The package is ESM; `require()` works in Node 20.19+ and 22.12+.
 
-Not covered: rename and copy detection, `--color-moved`, `--word-diff` output, binary patches, and applying patches.
+Not covered: comparing directories, rename and copy detection, `--color-moved`, `--word-diff` output, binary patches, and applying patches.
 
 ## Credits
 
