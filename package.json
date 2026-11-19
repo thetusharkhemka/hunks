@@ -1,0 +1,54 @@
+{
+  "name": "hunks",
+  "version": "1.0.0",
+  "description": "git's diff engine in TypeScript: output byte-identical to git diff, with Myers, patience, histogram and the indent heuristic. Zero dependencies.",
+  "keywords": [
+    "diff",
+    "git",
+    "git-diff",
+    "unified-diff",
+    "patch",
+    "myers",
+    "histogram",
+    "patience",
+    "indent-heuristic",
+    "xdiff",
+    "line-diff",
+    "word-diff",
+    "code-review"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "hunks": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "NOTICE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/cli.js",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.ts",
+    "fuzz": "node test/fuzz.ts",
+    "bench": "node bench/bench.ts",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "7.0.2"
+  }
+}
