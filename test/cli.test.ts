@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
@@ -9,9 +9,10 @@ const cli = join(import.meta.dirname, '..', 'src', 'cli.ts');
 const hasGit = spawnSync('git', ['--version']).status === 0;
 let dir = '';
 
-function run(cmd: string, args: string[]) {
+function run(cmd: string, args: string[], input?: string) {
   const r = spawnSync(cmd, args, {
     cwd: dir,
+    input,
     env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', NO_COLOR: '' },
   });
   return { out: r.stdout.toString('latin1'), err: r.stderr.toString(), code: r.status };
@@ -25,6 +26,13 @@ function same(...args: string[]): void {
   const h = hunks(...args);
   assert.equal(h.out, g.out, `stdout for ${args.join(' ')}`);
   assert.equal(h.code, g.code, `exit code for ${args.join(' ')}`);
+}
+
+function sameWithStdin(input: string, ...args: string[]): void {
+  const g = run('git', ['diff', '--no-index', '--no-color', ...args], input);
+  const h = run(process.execPath, [cli, '--no-color', ...args], input);
+  assert.equal(h.out, g.out, `stdout for ${args.join(' ')} with stdin`);
+  assert.equal(h.code, g.code, `exit code for ${args.join(' ')} with stdin`);
 }
 
 describe('cli', () => {
@@ -45,6 +53,9 @@ describe('cli', () => {
     };
     for (const [name, content] of Object.entries(files)) writeFileSync(join(dir, name), content);
     chmodSync(join(dir, 'exec'), 0o755);
+    symlinkSync('a.js', join(dir, 'link-a'));
+    symlinkSync('b.js', join(dir, 'link-b'));
+    symlinkSync('nowhere', join(dir, 'dangling'));
   });
   after(() => rmSync(dir, { recursive: true, force: true }));
 
@@ -64,6 +75,26 @@ describe('cli', () => {
     same('empty', 'a.js');
   });
 
+  test('symbolic links, standard input and git\'s flag syntax', { skip: (!hasGit || process.platform === 'win32') && 'needs git and symlinks' }, () => {
+    same('link-a', 'link-b');
+    same('dangling', 'link-a');
+    same('link-a', 'plain');
+    same('plain', 'link-a');
+    sameWithStdin('x\n', '-', 'plain');
+    sameWithStdin('y\n', 'plain', '-');
+    sameWithStdin('x\n', '-', '-');
+    same('--unified', 'a.js', 'b.js');
+    same('--unified=1', 'a.js', 'b.js');
+    same('-U', 'a.js', 'b.js');
+    same('-wb', 'ws1', 'ws2');
+    same('-wU1', 'a.js', 'b.js');
+    same('--diff-algorithm=Histogram', 'a.js', 'b.js');
+    same('-I', '^function', 'a.js', 'b.js');
+    same('--quiet', 'a.js', 'b.js');
+    same('--quiet', 'a.js', 'a.js');
+    for (const flag of ['-p', '-u', '--patch', '--exit-code', '--no-index', '--no-ext-diff']) same(flag, 'a.js', 'b.js');
+  });
+
   test('colour output highlights changed words', () => {
     writeFileSync(join(dir, 'c1'), 'const total = price * quantity;\n');
     writeFileSync(join(dir, 'c2'), 'const total = price * amount;\n');
@@ -78,6 +109,12 @@ describe('cli', () => {
     assert.equal(r.code, 2);
     assert.match(r.err, /expected two files/);
     assert.equal(hunks('--diff-algorithm=quick', 'a.js', 'b.js').code, 2);
+    assert.equal(hunks('-x', 'a.js', 'b.js').code, 2);
+    assert.equal(hunks('-I', '(', 'a.js', 'b.js').code, 2);
+    assert.equal(hunks('--quiet=yes', 'a.js', 'b.js').code, 2);
+    const missing = hunks('nope', 'a.js');
+    assert.equal(missing.code, 2);
+    assert.match(missing.err, /could not access 'nope'/);
   });
 
   test('--help and --version', () => {

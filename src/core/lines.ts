@@ -33,10 +33,6 @@ export interface Side {
   readonly ids: Int32Array;
 }
 
-export function record(side: Side, i: number): string {
-  return side.text.slice(side.starts[i], side.starts[i + 1]);
-}
-
 /** Record i without its trailing newline. */
 export function recordContent(side: Side, i: number): string {
   const s = side.starts[i];

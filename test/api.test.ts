@@ -241,3 +241,52 @@ describe('edge cases', () => {
     assert.match(patch(a, b, { funcname: /^sub (\w+)$/ }), /^@@ -2,4 \+2,4 @@ run\n/);
   });
 });
+
+describe('input handling', () => {
+  const enc = (s: string) => new TextEncoder().encode(s);
+  const dec = (b: Uint8Array) => new TextDecoder().decode(b);
+
+  test('non-ASCII options work the same in byte mode as in text mode', () => {
+    const a = 'café()\n  un\n  deux\n  trois\n  quatre\n';
+    const b = 'café()\n  un\n  deux\n  trois\n  QUATRE\n';
+    const options = { funcname: /^(café)/ };
+    assert.equal(dec(patch(enc(a), enc(b), options)), patch(a, b, options));
+    assert.match(patch(a, b, options), /@@ café\n/);
+
+    const fn = { funcname: (line: string) => (line.startsWith('café') ? 'là' : null) };
+    assert.equal(dec(patch(enc(a), enc(b), fn)), patch(a, b, fn));
+
+    const ignore = { ignoreMatchingLines: /QUATRE|quatre/ };
+    assert.equal(patch(a, b, ignore), '');
+    assert.equal(patch(enc(a), enc(b), ignore).length, 0);
+
+    const x = 'é1\nb\né2\n';
+    const y = 'é2\nb\né1\n';
+    assert.equal(dec(patch(enc(x), enc(y), { anchored: 'é2' })), patch(x, y, { anchored: 'é2' }));
+  });
+
+  test('a string and bytes can be mixed', () => {
+    const out = patch('naïve\n', enc('naive\n'));
+    assert.ok(out instanceof Uint8Array);
+    assert.equal(dec(out), '@@ -1 +1 @@\n-naïve\n+naive\n');
+    assert.deepEqual(edits('naïve\n', enc('naïve\n')), []);
+  });
+
+  test('diff() reads bytes as UTF-8 text', () => {
+    const d = diff(enc('café\n'), enc('café!\n'));
+    assert.deepEqual(d.hunks[0].lines.map((l) => l.text), ['café', 'café!']);
+  });
+
+  test('rejects what is not text', () => {
+    // @ts-expect-error: deliberately wrong
+    assert.throws(() => patch(undefined, 'a'), TypeError);
+    // @ts-expect-error: deliberately wrong
+    assert.throws(() => diff('a', 42), TypeError);
+    // @ts-expect-error: deliberately wrong
+    assert.throws(() => edits(null, 'a'), TypeError);
+    // @ts-expect-error: deliberately wrong
+    assert.throws(() => patch('a\n', 'b\n', { funcname: 'x' }), TypeError);
+    // @ts-expect-error: deliberately wrong
+    assert.throws(() => patch('f\n1\n2\n3\n4\na\n', 'f\n1\n2\n3\n4\nb\n', { funcname: () => 1 }), TypeError);
+  });
+});

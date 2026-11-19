@@ -6,6 +6,7 @@ import { compact } from './compact.ts';
 import type { Change } from './emit.ts';
 import { histogram } from './histogram.ts';
 import { classify, isBlankRecord, recordContent, type Side, type WhitespaceFlags } from './lines.ts';
+import { textOf } from './utf8.ts';
 import { myers, MyersEnv } from './myers.ts';
 import { patience } from './patience.ts';
 
@@ -95,7 +96,8 @@ export function run(textA: string, textB: string, opts: EngineOptions, bytes: bo
   }
   if (opts.ignoreMatchingLines.length > 0) {
     const matches = (side: Side, i: number): boolean => {
-      const line = recordContent(side, i);
+      // Patterns are written as text, so in byte mode they see text too.
+      const line = bytes ? textOf(recordContent(side, i)) : recordContent(side, i);
       for (const re of opts.ignoreMatchingLines) {
         re.lastIndex = 0;
         if (re.test(line)) return true;

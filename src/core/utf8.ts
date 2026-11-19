@@ -27,6 +27,16 @@ export function fromBytes(b: Uint8Array, bytes: boolean): string {
   return s;
 }
 
+/** Text as a byte-mode string: its UTF-8 bytes, one per char. */
+export function byteString(text: string): string {
+  return fromBytes(encoder.encode(text), true);
+}
+
+/** A byte-mode string read back as text (UTF-8, invalid bytes replaced). */
+export function textOf(bytesAsChars: string): string {
+  return decoder.decode(toBytes(bytesAsChars, true));
+}
+
 /**
  * Length of the longest prefix of `b` that git's UTF-8 decoder accepts.
  * Stricter than the standard: U+FFFE and U+FFFF are rejected too.
