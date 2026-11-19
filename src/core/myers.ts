@@ -8,6 +8,7 @@
  * matching git's output exactly depends on reproducing all of them.
  */
 
+import type { Env } from './env.ts';
 import type { Side } from './lines.ts';
 
 /** Integer square root approximation used by git to size its limits. */
@@ -33,19 +34,6 @@ const KEEP = 0;
 const DISCARD = 1;
 const INVESTIGATE = 2;
 
-/** State shared by every Myers run within one diff. */
-export class MyersEnv {
-  readonly count1: Int32Array;
-  readonly count2: Int32Array;
-  /** git before 2.50 discarded frequent lines even when asked to be minimal. */
-  readonly minimalDiscards: boolean;
-  constructor(classes: number, minimalDiscards = false) {
-    this.count1 = new Int32Array(classes);
-    this.count2 = new Int32Array(classes);
-    this.minimalDiscards = minimalDiscards;
-  }
-}
-
 /**
  * Diff records [off1, off1 + n1) of x against [off2, off2 + n2) of y, marking
  * changed records in cx / cy (indexed by record + 1).
@@ -57,7 +45,7 @@ export class MyersEnv {
 export function myers(
   x: Side, y: Side, cx: Uint8Array, cy: Uint8Array,
   off1: number, n1: number, off2: number, n2: number,
-  needMin: boolean, env: MyersEnv,
+  needMin: boolean, env: Env,
 ): void {
   const ids1 = x.ids;
   const ids2 = y.ids;
@@ -125,7 +113,7 @@ export function myers(
     }
   }
 
-  compare(ha1, nreff1, ri1, cx, ha2, nreff2, ri2, cy, needMin);
+  compare(ha1, nreff1, ri1, cx, ha2, nreff2, ri2, cy, needMin, env);
 }
 
 /**
@@ -174,7 +162,7 @@ let splitMinHi = false;
 function compare(
   ha1: Int32Array, nrec1: number, ri1: Int32Array, cx: Uint8Array,
   ha2: Int32Array, nrec2: number, ri2: Int32Array, cy: Uint8Array,
-  needMin: boolean,
+  needMin: boolean, env: Env,
 ): void {
   const ndiags = nrec1 + nrec2 + 3;
   const kvd = new Int32Array(2 * ndiags + 2);
@@ -204,7 +192,7 @@ function compare(
     } else if (off2 === lim2) {
       for (; off1 < lim1; off1++) cx[ri1[off1] + 1] = 1;
     } else {
-      split(ha1, off1, lim1, ha2, off2, lim2, kvd, fbase, bbase, min, mxcost);
+      split(ha1, off1, lim1, ha2, off2, lim2, kvd, fbase, bbase, min, mxcost, env);
       const i1 = splitI1;
       const i2 = splitI2;
       const lo = splitMinLo;
@@ -224,7 +212,7 @@ function split(
   ha1: Int32Array, off1: number, lim1: number,
   ha2: Int32Array, off2: number, lim2: number,
   kvd: Int32Array, fbase: number, bbase: number,
-  needMin: boolean, mxcost: number,
+  needMin: boolean, mxcost: number, env: Env,
 ): void {
   const dmin = off1 - lim2;
   const dmax = lim1 - off2;
@@ -241,6 +229,9 @@ function split(
 
   for (let ec = 1; ; ec++) {
     let gotSnake = false;
+    // Without a cost cap (--minimal) the search is quadratic; keep the time
+    // limit in view.
+    if ((ec & 63) === 0) env.check();
 
     // Extend the forward diagonal domain by one, bouncing off the box edges.
     if (fmin > dmin) kvd[fbase + --fmin - 1] = -1;

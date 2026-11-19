@@ -9,7 +9,9 @@
  */
 
 const encoder = new TextEncoder();
-const decoder = new TextDecoder();
+// ignoreBOM keeps a leading U+FEFF: it is part of the text, not a marker
+// to drop, and git compares and prints it like any other bytes.
+const decoder = new TextDecoder('utf-8', { ignoreBOM: true });
 
 export function toBytes(s: string, bytes: boolean): Uint8Array {
   if (!bytes) return encoder.encode(s);

@@ -16,7 +16,8 @@
  */
 
 import type { Side } from './lines.ts';
-import { myers, type MyersEnv } from './myers.ts';
+import type { Env } from './env.ts';
+import { myers } from './myers.ts';
 
 const MAX_INDENT = 200;
 const MAX_BLANKS = 20;
@@ -39,7 +40,7 @@ export interface CompactOptions {
   /** Re-diff merged groups (git >= 2.54, histogram only). */
   rediff: boolean;
   needMin: boolean;
-  env: MyersEnv;
+  env: Env;
 }
 
 /**

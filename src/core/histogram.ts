@@ -9,20 +9,18 @@
  * 2010 Google Inc., Eclipse Distribution License 1.0) and ported to git's
  * xdiff as xhistogram.c under the same license. This is an independent
  * TypeScript implementation that follows that design closely; see NOTICE.
+ *
+ * On crafted input the recursion can go as deep as the input is long, so
+ * the total cost is quadratic, as in git. Each step therefore works in flat
+ * arrays allocated once per diff, and checks the time limit.
  */
 
+import type { Env } from './env.ts';
 import type { Side } from './lines.ts';
-import { myers, type MyersEnv } from './myers.ts';
+import { myers } from './myers.ts';
 
 /** More occurrences than this and a line is too common to anchor on. */
 const MAX_CHAIN_LENGTH = 64;
-
-interface Occurrences {
-  /** First (lowest) line where this element occurs. */
-  ptr: number;
-  /** How many times it occurs in the indexed range. */
-  cnt: number;
-}
 
 export interface HistogramContext {
   a: Side;
@@ -30,11 +28,12 @@ export interface HistogramContext {
   ca: Uint8Array;
   cb: Uint8Array;
   needMin: boolean;
-  env: MyersEnv;
+  env: Env;
 }
 
 /** Diff 1-based line ranges, as git does. */
 export function histogram(ctx: HistogramContext, line1: number, count1: number, line2: number, count2: number): void {
+  ctx.env.histogramIndex(ctx.a.n);
   const work: number[] = [line1, count1, line2, count2];
   while (work.length > 0) {
     let c2 = work.pop()!;
@@ -52,12 +51,13 @@ export function histogram(ctx: HistogramContext, line1: number, count1: number, 
         for (let i = 0; i < c1; i++) ctx.ca[l1 + i] = 1;
         break;
       }
-      const lcs = findLcs(ctx, l1, c1, l2, c2);
-      if (lcs === FALL_BACK) {
+      ctx.env.check();
+      const found = findLcs(ctx, l1, c1, l2, c2);
+      if (found === FALL_BACK) {
         myers(ctx.a, ctx.b, ctx.ca, ctx.cb, l1 - 1, c1, l2 - 1, c2, ctx.needMin, ctx.env);
         break;
       }
-      if (lcs.begin1 === 0 && lcs.begin2 === 0) {
+      if (found === NOTHING_IN_COMMON) {
         for (let i = 0; i < c1; i++) ctx.ca[l1 + i] = 1;
         for (let i = 0; i < c2; i++) ctx.cb[l2 + i] = 1;
         break;
@@ -73,72 +73,79 @@ export function histogram(ctx: HistogramContext, line1: number, count1: number, 
   }
 }
 
-interface Region {
-  begin1: number;
-  end1: number;
-  begin2: number;
-  end2: number;
-}
+const FOUND = 0;
+const FALL_BACK = 1;
+const NOTHING_IN_COMMON = 2;
 
-const FALL_BACK = null;
+/** The region found by the last findLcs call; module scope avoids allocating. */
+const lcs = { begin1: 0, end1: 0, begin2: 0, end2: 0 };
 
 /**
- * Find the longest common region whose rarest line is as rare as possible.
- * Returns FALL_BACK when the inputs share lines but all are too common.
+ * Find the longest common region whose rarest line is as rare as possible,
+ * leaving it in `lcs`. Reports when the inputs share lines that are all too
+ * common (fall back to Myers) or share none at all.
  */
-function findLcs(ctx: HistogramContext, line1: number, count1: number, line2: number, count2: number): Region | typeof FALL_BACK {
+function findLcs(ctx: HistogramContext, line1: number, count1: number, line2: number, count2: number): number {
   const ids1 = ctx.a.ids;
   const ids2 = ctx.b.ids;
+  const env = ctx.env;
+  const ptrOf = env.histPtr!;
+  const cntOf = env.histCnt!;
+  const stamp = env.histStamp!;
+  const next = env.histNext!;
   const end1 = line1 + count1 - 1;
   const end2 = line2 + count2 - 1;
 
-  // Index the first range. Scanning backwards leaves each element's
-  // occurrence chain in ascending order.
-  const records = new Map<number, Occurrences>();
-  const lineMap: Occurrences[] = new Array(count1);
-  const nextPtrs = new Int32Array(count1);
+  if (env.generation === 0x7fffffff) {
+    stamp.fill(0);
+    env.generation = 0;
+  }
+  const gen = ++env.generation;
+
+  // Index the first range by class. Scanning backwards leaves each class's
+  // chain of occurrences (next[]) in ascending order.
   for (let ptr = end1; ptr >= line1; ptr--) {
     const id = ids1[ptr - 1];
-    let rec = records.get(id);
-    if (rec) {
-      nextPtrs[ptr - line1] = rec.ptr;
-      rec.ptr = ptr;
-      rec.cnt++;
+    if (stamp[id] === gen) {
+      next[ptr] = ptrOf[id];
+      ptrOf[id] = ptr;
+      cntOf[id]++;
     } else {
-      rec = { ptr, cnt: 1 };
-      records.set(id, rec);
+      stamp[id] = gen;
+      ptrOf[id] = ptr;
+      cntOf[id] = 1;
+      next[ptr] = 0;
     }
-    lineMap[ptr - line1] = rec;
   }
 
-  const lcs: Region = { begin1: 0, end1: 0, begin2: 0, end2: 0 };
+  lcs.begin1 = lcs.end1 = lcs.begin2 = lcs.end2 = 0;
   let bestCnt = MAX_CHAIN_LENGTH + 1;
   let hasCommon = false;
 
-  for (let bPtr = line2; bPtr <= end2;) {
+  for (let bPtr = line2, steps = 0; bPtr <= end2; steps++) {
+    if ((steps & 4095) === 4095) env.check();
     let bNext = bPtr + 1;
-    const rec = records.get(ids2[bPtr - 1]);
-    if (rec) {
-      if (rec.cnt > bestCnt) {
-        hasCommon = true;
-      } else {
-        hasCommon = true;
-        let as = rec.ptr;
+    const id = ids2[bPtr - 1];
+    if (stamp[id] === gen) {
+      hasCommon = true;
+      const cnt = cntOf[id];
+      if (cnt <= bestCnt) {
+        let as = ptrOf[id];
         for (;;) {
-          let np = nextPtrs[as - line1];
+          let np = next[as];
           let bs = bPtr;
           let ae = as;
           let be = bs;
-          let rc = rec.cnt;
+          let rc = cnt;
           while (line1 < as && line2 < bs && ids1[as - 2] === ids2[bs - 2]) {
             as--;
             bs--;
-            if (rc > 1) rc = Math.min(rc, lineMap[as - line1].cnt);
+            if (rc > 1) rc = Math.min(rc, cntOf[ids1[as - 1]]);
           }
           while (ae < end1 && be < end2 && ids1[ae] === ids2[be]) {
             ae++;
             be++;
-            if (rc > 1) rc = Math.min(rc, lineMap[ae - line1].cnt);
+            if (rc > 1) rc = Math.min(rc, cntOf[ids1[ae - 1]]);
           }
           if (bNext <= be) bNext = be + 1;
           if (lcs.end1 - lcs.begin1 < ae - as || rc < bestCnt) {
@@ -150,7 +157,7 @@ function findLcs(ctx: HistogramContext, line1: number, count1: number, line2: nu
           }
           if (np === 0) break;
           while (np <= ae) {
-            np = nextPtrs[np - line1];
+            np = next[np];
             if (np === 0) break;
           }
           if (np === 0) break;
@@ -162,5 +169,6 @@ function findLcs(ctx: HistogramContext, line1: number, count1: number, line2: nu
   }
 
   if (hasCommon && bestCnt > MAX_CHAIN_LENGTH) return FALL_BACK;
-  return lcs;
+  if (lcs.begin1 === 0 && lcs.begin2 === 0) return NOTHING_IN_COMMON;
+  return FOUND;
 }

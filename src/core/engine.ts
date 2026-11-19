@@ -7,7 +7,8 @@ import type { Change } from './emit.ts';
 import { histogram } from './histogram.ts';
 import { classify, isBlankRecord, recordContent, type Side, type WhitespaceFlags } from './lines.ts';
 import { textOf } from './utf8.ts';
-import { myers, MyersEnv } from './myers.ts';
+import { Env, type Deadline } from './env.ts';
+import { myers } from './myers.ts';
 import { patience } from './patience.ts';
 
 export type Algorithm = 'myers' | 'minimal' | 'patience' | 'histogram';
@@ -20,6 +21,8 @@ export interface EngineOptions extends WhitespaceFlags {
   ignoreMatchingLines: readonly RegExp[];
   /** The git release to imitate (see compat.ts). */
   git: number;
+  /** When to give up with DiffTimeoutError. */
+  deadline: Deadline;
 }
 
 export interface EngineResult {
@@ -35,10 +38,11 @@ export function diffSides(a: Side, b: Side, classes: number, algorithm: Algorith
   git: number;
   /** As with git, --minimal survives a switch to patience by --anchored. */
   minimal?: boolean;
+  deadline?: Deadline;
 }): [Uint8Array, Uint8Array] {
   const ca = new Uint8Array(a.n + 2);
   const cb = new Uint8Array(b.n + 2);
-  const env = new MyersEnv(classes, opts.git < 250);
+  const env = new Env(classes, { minimalDiscards: opts.git < 250, deadline: opts.deadline });
   const needMin = algorithm === 'minimal' || !!opts.minimal;
 
   if (algorithm === 'patience') {
@@ -116,7 +120,7 @@ export function run(textA: string, textB: string, opts: EngineOptions, bytes: bo
 }
 
 const encoder = new TextEncoder();
-const decoder = new TextDecoder();
+const decoder = new TextDecoder('utf-8', { ignoreBOM: true });
 
 /**
  * With no context lines git first drops the common tail of both inputs, in
