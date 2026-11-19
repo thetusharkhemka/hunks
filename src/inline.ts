@@ -72,45 +72,36 @@ export function inlineSpans(removed: readonly string[], added: readonly string[]
 }
 
 /**
- * Absorb short equalities into the edits around them, so that "foo(a, b)"
- * against "bar(c, d)" highlights one span instead of four. An equality goes
- * when it is no longer than the changed text on either side of it.
+ * Join changed words separated only by spaces into one span, so that a
+ * rewritten phrase reads as one change rather than a row of fragments.
+ * Punctuation is left alone: in code, a quote or a bracket that survives an
+ * edit is exactly what tells you where the edit happened.
  */
 function cleanup(ta: string[], ca: Uint8Array, tb: string[], cb: Uint8Array): void {
-  for (let pass = 0; pass < 8; pass++) {
-    let changedAny = false;
-    // Walk aligned runs: (changed a, changed b), then an equal run.
-    let i = 0;
-    let j = 0;
-    let prevChanged = 0;
-    while (i < ta.length || j < tb.length) {
-      let changedLen = 0;
-      while (i < ta.length && ca[i + 1]) changedLen += ta[i++].length;
-      while (j < tb.length && cb[j + 1]) changedLen += tb[j++].length;
-      const eqStartA = i;
-      const eqStartB = j;
-      let eqLen = 0;
-      let hasBreak = false;
-      while (i < ta.length && j < tb.length && !ca[i + 1] && !cb[j + 1]) {
-        if (ta[i] === '\n') hasBreak = true;
-        eqLen += ta[i].length;
-        i++;
-        j++;
-      }
-      if (i === eqStartA) break;
-      // Peek at the changes that follow this equality.
-      let nextChanged = 0;
-      for (let k = i; k < ta.length && ca[k + 1]; k++) nextChanged += ta[k].length;
-      for (let k = j; k < tb.length && cb[k + 1]; k++) nextChanged += tb[k].length;
-      const before = changedLen > 0 ? changedLen : prevChanged;
-      if (!hasBreak && before > 0 && nextChanged > 0 && eqLen <= Math.min(before, nextChanged)) {
-        for (let k = eqStartA; k < i; k++) ca[k + 1] = 1;
-        for (let k = eqStartB; k < j; k++) cb[k + 1] = 1;
-        changedAny = true;
-      }
-      prevChanged = changedLen;
+  let i = 0;
+  let j = 0;
+  let changedBefore = false;
+  while (i < ta.length || j < tb.length) {
+    if (ca[i + 1] || cb[j + 1]) {
+      while (i < ta.length && ca[i + 1]) i++;
+      while (j < tb.length && cb[j + 1]) j++;
+      changedBefore = true;
+      continue;
     }
-    if (!changedAny) break;
+    const startA = i;
+    const startB = j;
+    let blank = true;
+    while (i < ta.length && j < tb.length && !ca[i + 1] && !cb[j + 1]) {
+      if (ta[i] === '\n' || ta[i].trim() !== '') blank = false;
+      i++;
+      j++;
+    }
+    const changedAfter = (i < ta.length && ca[i + 1] === 1) || (j < tb.length && cb[j + 1] === 1);
+    if (blank && changedBefore && changedAfter) {
+      for (let k = startA; k < i; k++) ca[k + 1] = 1;
+      for (let k = startB; k < j; k++) cb[k + 1] = 1;
+    }
+    changedBefore = false;
   }
 }
 
