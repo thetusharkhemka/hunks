@@ -1,0 +1,27 @@
+version: 2
+
+# Updates wait a week after a release before they are proposed. Worms such
+# as Shai-Hulud spread through versions that were live for hours; a
+# cooldown lets the registry pull those before they reach this repository.
+# Security updates are not delayed.
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      development:
+        dependency-type: development
