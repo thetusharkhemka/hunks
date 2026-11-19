@@ -6,7 +6,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, ftruncateSync, mkdirSync, mkdtempSync, openSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
@@ -21,6 +21,25 @@ const enc = (s: string) => new TextEncoder().encode(s);
 const dec = (b: Uint8Array) => new TextDecoder('utf-8', { ignoreBOM: true }).decode(b);
 
 const gitEnv = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', LC_ALL: 'C' };
+
+// File names with control characters, pipes, devices and sparse files are
+// POSIX matters; on Windows these tests are skipped.
+const posix = process.platform !== 'win32';
+
+const gitVersion = (() => {
+  const m = /(\d+)\.(\d+)/.exec(execFileSync('git', ['--version'], { encoding: 'utf8' }));
+  return m ? Number(m[1]) * 100 + Number(m[2]) : 0;
+})();
+
+/** A file of `size` zero bytes that takes no disk space where sparse files exist. */
+function sparse(path: string, size: number): void {
+  const fd = openSync(path, 'w');
+  try {
+    ftruncateSync(fd, size);
+  } finally {
+    closeSync(fd);
+  }
+}
 
 function git(args: string[], options: { cwd?: string; input?: string } = {}) {
   return spawnSync('git', ['diff', '--no-index', '--no-color', ...args], { ...options, env: gitEnv, maxBuffer: 1 << 30 });
@@ -41,7 +60,7 @@ function quadraticForHistogram(n: number): [string, string] {
 }
 
 describe('patch labels', () => {
-  test('are quoted exactly as git quotes paths', () => {
+  test('are quoted exactly as git quotes paths', { skip: !posix }, () => {
     const names = ['café.txt', 'with space.txt', 'quote".txt', 'back\\slash.txt', 'new\nline.txt', 'tab\there.txt', 'bell\x07.txt', 'esc\x1b[31m.txt', '‮evil.txt', 'plain.txt'];
     for (const name of names) {
       const where = mkdtempSync(join(dir, 'labels-'));
@@ -239,13 +258,16 @@ describe('diffArrays', () => {
 });
 
 describe('cli: input', () => {
-  test('reads named pipes and links to them, as git does', () => {
+  test('reads named pipes and links to them, as git does', { skip: !posix }, () => {
     writeFileSync(join(dir, 'p-file'), 'a\n');
     execFileSync('mkfifo', [join(dir, 'fifo')]);
     symlinkSync(join(dir, 'fifo'), join(dir, 'fifo-link'));
     for (const name of ['fifo', 'fifo-link']) {
       const run = (cmd: string) => spawnSync('sh', ['-c', `printf 'b\\n' > fifo & ${cmd} ${name} p-file`], { cwd: dir, env: gitEnv }).stdout.toString();
-      assert.equal(run(`"${process.execPath}" "${CLI}"`), run('git diff --no-index --no-color'), name);
+      const ours = run(`"${process.execPath}" "${CLI}"`);
+      assert.match(ours, /^index 0000000\.\.7898192 100644\n--- a\/\S+\n\+\+\+ b\/p-file\n@@ -1 \+1 @@\n-b\n\+a\n$/m, name);
+      // git reads pipes since 2.42; older versions compare the link instead.
+      if (gitVersion >= 242) assert.equal(ours, run('git diff --no-index --no-color'), name);
     }
   });
 
@@ -257,18 +279,17 @@ describe('cli: input', () => {
     assert.equal(ours.status, 1);
   });
 
-  test('refuses devices and sockets instead of reading forever', () => {
+  test('refuses devices and sockets instead of reading forever', { skip: !posix }, () => {
     const r = hunks(['/dev/zero', '/dev/null']);
     assert.equal(r.status, 2);
     assert.match(r.stderr.toString(), /'\/dev\/zero' is a character device/);
   });
 
-  test('treats a file over 512 MiB as binary, as git does', () => {
+  test('treats a file over 512 MiB as binary, as git does', { skip: !posix }, () => {
     const big = join(dir, 'big');
     const big2 = join(dir, 'big2');
-    // Sparse: no disk space, and git and hunks both stream it.
-    execFileSync('truncate', ['-s', '513M', big]);
-    execFileSync('truncate', ['-s', '514M', big2]);
+    sparse(big, 513 * 2 ** 20);
+    sparse(big2, 514 * 2 ** 20);
     const ours = hunks([big, big2]);
     const theirs = git([big, big2]);
     assert.equal(ours.status, 1);
@@ -328,7 +349,7 @@ describe('cli: output', () => {
     assert.equal(r.stderr.toString(), "hunks: could not access 'no^[]0;title^Gsuch'\n");
   });
 
-  test('stops quietly when the reader goes away', () => {
+  test('stops quietly when the reader goes away', { skip: !posix }, () => {
     const lines = Array.from({ length: 300_000 }, (_, i) => `${i}\n`).join('');
     writeFileSync(join(dir, 'long-a'), lines);
     writeFileSync(join(dir, 'long-b'), lines.replace(/7\n/g, 'x\n'));

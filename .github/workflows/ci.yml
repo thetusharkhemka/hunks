@@ -5,24 +5,32 @@ on:
     branches: [main]
   pull_request:
 
-permissions:
-  contents: read
+# No token permissions unless a job asks for them. Actions are pinned to
+# full commit SHAs: a tag can be moved to other code, a commit cannot.
+permissions: {}
 
 jobs:
   test:
     name: Node ${{ matrix.node }}, ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        node: [22, 24]
+        node: [22, 24, 26]
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
+          package-manager-cache: false
       - run: npm ci --ignore-scripts
+      - name: Check the registry signatures of the dev dependencies
+        run: npm audit signatures
       - name: git used as the reference
         run: git --version
       - run: npm run typecheck
@@ -32,27 +40,38 @@ jobs:
       - run: npm run build
 
   windows:
-    name: API tests, windows-latest
+    name: Library tests, windows-latest
     runs-on: windows-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
+          package-manager-cache: false
       - run: npm ci --ignore-scripts
-      - run: node --test test/api.test.ts
+      - run: node --test test/api.test.ts test/security.test.ts
 
   oldest-node:
     name: Built package on Node 20
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
+          package-manager-cache: false
       - run: npm ci --ignore-scripts
       - run: npm run build
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
+          package-manager-cache: false
       - run: node test/smoke.mjs

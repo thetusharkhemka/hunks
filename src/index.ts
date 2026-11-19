@@ -49,9 +49,11 @@ export interface DiffOptions {
   anchored?: string | readonly string[];
   /**
    * Give up after this many milliseconds by throwing a `DiffTimeoutError`.
-   * Myers and patience stay close to linear on any input, but histogram and
-   * minimal can take quadratic time on input crafted to be hard, in git as
-   * here. Set a limit whenever the input comes from people you don't trust.
+   * Myers and patience grow only a little faster than the input, but
+   * histogram and minimal can take quadratic time on input crafted for it,
+   * in git as here, and any algorithm takes a while on hundreds of
+   * megabytes. Set a limit whenever the input comes from people you don't
+   * trust.
    */
   timeout?: number;
 }
