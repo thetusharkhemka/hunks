@@ -5,15 +5,15 @@
 hunks produces the same diffs as `git diff`, byte for byte: the same algorithms (Myers with git's heuristics, patience, histogram), the same placement of ambiguous changes, the same hunk headers. No dependencies, no child processes, no WebAssembly. It runs in Node, Bun, Deno and the browser.
 
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/npm/hunks@1/media/demo.svg" alt="hunks comparing two versions of a TypeScript file, with changed words highlighted" width="602">
+  <img src="https://cdn.jsdelivr.net/npm/@thetusharkhemka/hunks@1/media/demo.svg" alt="hunks comparing two versions of a TypeScript file, with changed words highlighted" width="602">
 </p>
 
 ```sh
-npm install hunks
+npm install @thetusharkhemka/hunks
 ```
 
 ```js
-import { patch } from 'hunks';
+import { patch } from '@thetusharkhemka/hunks';
 
 patch('function add(a, b) {\n  return a + b;\n}\n', 'function add(a, b) {\n  return a + b + 0;\n}\n');
 // @@ -1,3 +1,3 @@
@@ -165,9 +165,11 @@ Which algorithm? `myers` is git's default and what people are used to seeing. `h
 
 ## Command line
 
+Installed, the command is `hunks`; with npx, use the package name.
+
 ```sh
-npx hunks old.ts new.ts
-npx hunks --histogram -U5 -w before.json after.json
+npx @thetusharkhemka/hunks old.ts new.ts
+npx @thetusharkhemka/hunks --histogram -U5 -w before.json after.json
 ```
 
 The flags are git's. Without colour, the output is exactly that of `git diff --no-index`, header lines and all (blob ids, modes, quoted paths, binary files, `/dev/null`), and so is the exit code: 1 when the files differ, 0 when not, 2 on errors. With colour it highlights changed words and trailing whitespace. `hunks --help` lists everything.
