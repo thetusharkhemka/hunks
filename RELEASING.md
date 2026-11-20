@@ -18,10 +18,10 @@ the staged package on npm, with two-factor authentication.
    as a required reviewer, turn off the bypass for administrators, and
    limit deployments to tags matching `v*`.
 4. **Settings → Rules → Rulesets**:
-   - for `main`: require a pull request and the CI checks, and block
-     force pushes and deletion;
-   - for tags `v*`: restrict creation, updates and deletion to
-     maintainers, so a release tag cannot be moved once it exists.
+   - for `main`: require a pull request and the CI and CodeQL checks,
+     and block force pushes and deletion;
+   - for tags `v*`: block updates and deletion, so a release tag cannot
+     be moved or removed once it exists.
 5. **Settings → Actions → General**: set workflow permissions to read
    only. Require approval for workflows from outside contributors. Allow
    only actions by GitHub, plus `ossf/scorecard-action`.
@@ -36,8 +36,9 @@ the staged package on npm, with two-factor authentication.
    `npm dist-tag`. Do this just before pushing a release tag: npm expires
    a connection that no release has used within two days.
 2. Then, under **Publishing access**, choose **Require two-factor
-   authentication and disallow tokens**. Trusted publishing keeps working.
-   A token that leaks can then no longer publish.
+   authentication and disallow bypass 2fa tokens**. Trusted publishing
+   keeps working, and a leaked token can no longer publish without your
+   second factor.
 3. On the account, use a security key or passkey for two-factor
    authentication, and delete any access tokens you no longer need.
 
@@ -45,8 +46,9 @@ the staged package on npm, with two-factor authentication.
 
 1. Update `version` in `package.json` and add the release to
    `CHANGELOG.md`. Run `npm install --package-lock-only` so the lockfile
-   carries the new version too, and commit.
-2. Tag the commit and push the tag:
+   carries the new version too, and merge the change into `main`
+   through a pull request.
+2. Tag that commit and push the tag:
 
    ```sh
    git tag -a v1.2.1 -m 'hunks 1.2.1'
