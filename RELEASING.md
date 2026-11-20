@@ -51,8 +51,8 @@ the staged package on npm, with two-factor authentication.
 2. Tag that commit and push the tag:
 
    ```sh
-   git tag -a v1.2.1 -m 'hunks 1.2.1'
-   git push origin v1.2.1
+   git tag -a v1.2.2 -m 'hunks 1.2.2'
+   git push origin v1.2.2
    ```
 
 3. Approve the run in the **Actions** tab. The workflow checks that the
@@ -64,6 +64,6 @@ the staged package on npm, with two-factor authentication.
 5. Check the result:
 
    ```sh
-   npm view @thetusharkhemka/hunks@1.2.1 dist.attestations
+   npm view @thetusharkhemka/hunks@1.2.2 dist.attestations
    node scripts/verify-release.ts
    ```

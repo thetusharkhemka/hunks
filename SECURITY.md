@@ -63,7 +63,7 @@ unchanged, so that it can go into `git apply`.
 ## Verifying a release
 
 Every version on npm is signed by the registry. Versions released through
-this repository's workflow, 1.2.1 and later, also carry a provenance
+this repository's workflow, 1.2.2 and later, also carry a provenance
 attestation that names the commit and the workflow run that built them.
 The workflow stages each release without any token, and it becomes public
 only when a maintainer approves it on npm with two-factor authentication.

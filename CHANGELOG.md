@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.2.1
+## 1.2.2
 
 The first release built by GitHub Actions. It carries a provenance
 attestation that names the commit and the workflow run behind it, and
@@ -10,6 +10,10 @@ attestation that names the commit and the workflow run behind it, and
 From this release on, the workflow stages each version on npm without
 any token, and a maintainer must approve it there, with two-factor
 authentication, before it is public.
+
+1.2.1 was the same release. It was withdrawn the day it was published,
+because the repository's history was rewritten afterwards and its
+provenance named a commit that is no longer in it.
 
 ## 1.2.0
 

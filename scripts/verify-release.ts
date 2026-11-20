@@ -1,7 +1,7 @@
 /**
  * Checks that a version on npm is exactly what this source builds.
  *
- *   git checkout v1.2.1 && npm ci --ignore-scripts
+ *   git checkout v1.2.2 && npm ci --ignore-scripts
  *   node scripts/verify-release.ts
  *
  * Builds and packs the checkout, then compares the tarball with the one the
