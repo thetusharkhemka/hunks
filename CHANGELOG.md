@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.1
+
+The first release built by GitHub Actions. It carries a provenance
+attestation that names the commit and the workflow run behind it, and
+`package.json` now links the repository. The code is the same as in
+1.2.0.
+
+From this release on, the workflow stages each version on npm without
+any token, and a maintainer must approve it there, with two-factor
+authentication, before it is public.
+
 ## 1.2.0
 
 Three-way merging, and hardening for input you do not control. Every

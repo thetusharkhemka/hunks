@@ -1,6 +1,6 @@
 {
   "name": "@thetusharkhemka/hunks",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "git's diff and merge engine in TypeScript: diffs byte-identical to git diff, three-way merges byte-identical to git merge-file. Myers, patience, histogram, the indent heuristic. Zero dependencies.",
   "keywords": [
     "diff",
