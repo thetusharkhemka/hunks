@@ -66,16 +66,18 @@ Then there is speed. Between react-dom 19.0 and 19.1, the 24,717-line client bui
 
 The usual way out is to spawn git. The [`git-diff`](https://www.npmjs.com/package/git-diff) package, with about 900,000 weekly downloads, does exactly that, which rules out browsers, edge runtimes and sandboxes.
 
+Merging is in the same state. [`diff3`](https://www.npmjs.com/package/diff3) and [`node-diff3`](https://www.npmjs.com/package/node-diff3), about 4.5 million downloads a week together, implement the classic diff3 algorithm. Across 968 real merges in which both sides changed a file, their result differs from git's in 214 and 213, about one in five: mostly conflicts drawn differently, and three merges they complete where git stops to ask.
+
 ## Verified against git
 
 Parity is not a goal, it is a test. The suite runs the git binary on the same input and compares bytes:
 
 - **Real code.** 634 changed files from consecutive releases of express, eslint, webpack, react-dom, typescript, three, vue, lodash and others, under 11 option sets. All identical.
 - **Generated code.** 140,000 cases built to break diff engines: heavy duplication, sliding blocks, CRLF, missing final newlines, invalid UTF-8, multibyte function names at the 80-byte header limit, and random combinations of every option. All identical.
-- **Merges.** 34,220 three-way merges of real files, built from three consecutive releases of the same 20 projects (1,930 of them with conflicts), and 33,000 generated merges. They are checked against `git merge-file` (every conflict style, every way of settling conflicts, marker sizes, labels), `git merge-tree` and `git merge` (every diff algorithm and whitespace option). All identical, conflict counts included.
+- **Merges.** 34,220 three-way merges of real files, each built from three consecutive releases of the projects above (1,930 of them with conflicts), and 33,000 generated merges. They are checked against `git merge-file` (every conflict style, every way of settling conflicts, marker sizes, labels), `git merge-tree` and `git merge` (every diff algorithm and whitespace option). All identical, conflict counts included.
 - **The corners.** Behaviour found by reading git's source: with `-U0` git trims the common tail in 1 KiB blocks before diffing, which can move where a change lands; hunk headers are cut at the first byte sequence git does not accept as UTF-8; `--ignore-blank-lines` counts a final one-byte line as blank; conflict markers take CRLF line endings from the lines around them. hunks does all of it.
 
-On the same real files, string input is checked against git's output too, `diff()` is checked to rebuild exactly into `patch()`'s text, and `edits()` to turn every old file into the new one. The test suite repeats the comparisons against whichever git is installed, so parity can be re-checked on any machine. hunks follows current git; see [Compatibility](#compatibility) for the details that changed after git 2.43.
+On the same real files, string input is checked against git's output too, `diff()` is checked to rebuild exactly into `patch()`'s text, and `edits()` to turn every old file into the new one. The test suite repeats the comparisons against whichever git is installed, so parity can be re-checked on any machine. The real releases are listed in `scripts/releases.txt`; `node scripts/fetch-corpus.ts corpus` downloads them, and `node scripts/corpus.ts corpus` and `node scripts/merge-corpus.ts corpus --git-merge` repeat the checks. In `bench/`, `node jsdiff-compare.ts ../corpus` and `node merge-compare.ts ../corpus` repeat the comparisons with other libraries. hunks follows current git; see [Compatibility](#compatibility) for the details that changed after git 2.43.
 
 ## API
 
@@ -143,7 +145,7 @@ const { merged, conflicts } = merge(ours, base, theirs, { labels: { ours: 'mine'
 //   >>>>>>> theirs
 ```
 
-Our new host merges cleanly; both sides changed `retries`, so that line is a conflict.
+Our new host merges cleanly; both sides changed `retries`, so that line is a conflict. As in git, changes to adjacent lines conflict too: two changes merge cleanly only with at least one unchanged line between them.
 
 `conflicts` is how many conflicts `merged` holds; 0 means the merge is clean. As with `patch()`, strings in give a string out and `Uint8Array`s give bytes. The order of the arguments is that of `git merge-file`: ours, the base, theirs.
 
@@ -234,7 +236,7 @@ hunks is built to run on input you do not control.
 
 - **Time.** Every function takes `timeout` and throws `DiffTimeoutError` when it runs out. Myers and patience grow only a little faster than their input; histogram and minimal can be driven to quadratic time by crafted input, in git as here.
 - **Size.** Up to 512 MiB a side. Larger input is refused before any work starts.
-- **Patches.** Labels are quoted as git quotes paths, and a custom `funcname` cannot break the header line, so a file name cannot forge lines of a patch.
+- **Patches and merges.** Patch labels are quoted as git quotes paths, a custom `funcname` cannot break the header line, and a merge label cannot contain a line break, so no name can forge lines of the output.
 - **Terminals.** The CLI shows control characters, bidirectional overrides (the trick behind Trojan Source), zero-width characters and Unicode tags as escapes before they reach your terminal. Piped output stays git's bytes.
 - **Supply chain.** No runtime dependencies and no install scripts. `scripts/verify-release.ts` rebuilds a version and compares it with the registry's tarball, file by file.
 
@@ -254,6 +256,8 @@ Median time per diff, in a fresh process per measurement. Files are real: the sa
 
 hunks' times include producing the full unified patch. @jest/diff-sequences, fast-myers-diff and diff-match-patch only compute an edit script, and the two VS Code libraries also refine changes down to characters, so this is not like for like; it is what you get from each. @vscode/diff was measured with its TypeScript backend, since its WebAssembly one panics in version 0.0.2-0. Node 22.23, Intel Xeon at 2.1 GHz. To reproduce: `cd bench && npm install --ignore-scripts && node bench.ts`.
 
+Merging the 968 real cases from [Why](#why) the way `git merge` does (histogram) takes hunks 2.8 s in all; node-diff3 takes 3.2 s, and diff3 24 s.
+
 ## Compatibility
 
 - **git versions.** hunks follows current git. A few details changed after git 2.43, all in uncommon situations: `--minimal` stopped setting aside lines that occur very often (2.50); `--anchored` stopped combining with `--minimal` (2.53); histogram re-diffs blocks that were merged while sliding (2.54); `--anchored` tests the anchor against the new side's line (2.54); and an empty merge label no longer leaves a space after its marker (2.55). The test suite checks both behaviours against whichever git it finds. Before 2.50, `git merge` used histogram whatever `-Xdiff-algorithm` said.
@@ -268,7 +272,7 @@ Not covered: comparing directories, rename and copy detection, `--color-moved`, 
 
 ## Credits
 
-The ideas are other people's. Eugene W. Myers, *An O(ND) Difference Algorithm and Its Variations* (1986). Davide Libenzi's LibXDiff, which became git's xdiff, and the git contributors who have improved it since. Michael Haggerty's indent heuristic. Bram Cohen's patience diff. Histogram diff from JGit, by Shawn Pearce and others.
+The ideas are other people's. Eugene W. Myers, *An O(ND) Difference Algorithm and Its Variations* (1986). Davide Libenzi's LibXDiff, which became git's xdiff, with the three-way merge by Johannes Schindelin, and the git contributors who have improved it since, among them Elijah Newren's zdiff3. Michael Haggerty's indent heuristic. Bram Cohen's patience diff. Histogram diff from JGit, by Shawn Pearce and others.
 
 hunks is an independent implementation in TypeScript. git's source was the reference for its behaviour and the git binary is the oracle in its tests; no git code is included. The histogram implementation follows JGit's design, which is available under the Eclipse Distribution License; see [NOTICE](./NOTICE).
 

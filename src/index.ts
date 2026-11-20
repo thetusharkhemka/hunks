@@ -1,5 +1,5 @@
 /**
- * hunks: git's diff engine, in TypeScript.
+ * hunks: git's diff and merge engine, in TypeScript.
  *
  * @module
  */
@@ -19,7 +19,7 @@ export type { Algorithm } from './core/engine.ts';
 export { DiffTimeoutError };
 export type { Span } from './inline.ts';
 
-/** How lines are compared. Every option corresponds to a `git diff` flag. */
+/** How lines are compared. Every option but `timeout` corresponds to a `git diff` flag. */
 export interface DiffOptions {
   /**
    * `'myers'` (git's default), `'minimal'`, `'patience'` or `'histogram'`.
@@ -102,7 +102,7 @@ export interface Edit {
 
 export interface Line {
   type: 'context' | 'removed' | 'added';
-  /** The line, without its line break. */
+  /** The line, without its line break. Bytes are decoded as UTF-8. */
   text: string;
   /** 1-based line number in the old text, or null for added lines. */
   oldNumber: number | null;
