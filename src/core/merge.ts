@@ -140,26 +140,29 @@ function collect(s1: Change[], s2: Change[], base: Side, ours: Side, theirs: Sid
     }
     if (level === MINIMAL || x1.i1 !== x2.i1 || x1.chg1 !== x2.chg1 || x1.chg2 !== x2.chg2 ||
         !sameRecords(ours, x1.i2, theirs, x2.i2, x1.chg2, opts)) {
-      // Overlapping, different changes: a conflict spanning both.
-      const off = x1.i1 - x2.i1;
-      const ffo = off + x1.chg1 - x2.chg1;
+      // Overlapping, different changes: one conflict that spans both. On
+      // the base, our change starts startGap lines after theirs (before it
+      // if negative) and ends endGap lines after theirs; each side's range
+      // is widened by the lines of the other's change it does not cover.
+      const startGap = x1.i1 - x2.i1;
+      const endGap = startGap + x1.chg1 - x2.chg1;
       let i0 = x1.i1;
       let i1 = x1.i2;
       let i2 = x2.i2;
-      if (off > 0) {
-        i0 -= off;
-        i1 -= off;
+      if (startGap > 0) {
+        i0 -= startGap;
+        i1 -= startGap;
       } else {
-        i2 += off;
+        i2 += startGap;
       }
       let chg0 = x1.i1 + x1.chg1 - i0;
       let chg1 = x1.i2 + x1.chg2 - i1;
       let chg2 = x2.i2 + x2.chg2 - i2;
-      if (ffo < 0) {
-        chg0 -= ffo;
-        chg1 -= ffo;
+      if (endGap < 0) {
+        chg0 -= endGap;
+        chg1 -= endGap;
       } else {
-        chg2 += ffo;
+        chg2 += endGap;
       }
       append(regions, 0, i0, chg0, i1, chg1, i2, chg2);
     }

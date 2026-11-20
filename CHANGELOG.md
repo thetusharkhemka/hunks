@@ -13,8 +13,8 @@ Merging, new
   `merge`, `diff3` and `zdiff3`; conflicts settled for `ours`, `theirs` or
   their `union`; marker size and labels; every diff algorithm and
   whitespace option. Checked against `git merge-file`, `git merge-tree`
-  and `git merge` on 34,220 merges of real files, from three consecutive
-  releases of 20 projects, and on 33,000 generated merges.
+  and `git merge` on 34,220 merges of real files, from 20 runs of three
+  consecutive releases of 16 projects, and on 33,000 generated merges.
 - `hunks merge-file`: the same on the command line, with the options and
   exit codes of `git merge-file`.
 
@@ -85,6 +85,9 @@ Supply chain
   builds.
 - SECURITY.md: what hunks guarantees, what it leaves to the caller, and
   how to report a vulnerability.
+- Every claim about real code can be repeated: scripts/releases.txt lists
+  the releases, scripts/fetch-corpus.ts downloads them, and the scripts in
+  scripts/ and bench/ rerun each comparison.
 
 ## 1.1.0
 

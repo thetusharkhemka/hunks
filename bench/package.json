@@ -4,11 +4,13 @@
   "type": "module",
   "description": "Benchmarks against other JavaScript diff libraries. Not published.",
   "dependencies": {
-    "diff": "9.0.0",
     "@jest/diff-sequences": "30.5.0",
-    "fast-myers-diff": "3.2.0",
+    "@vscode/diff": "0.0.2-0",
+    "diff": "9.0.0",
     "diff-match-patch": "1.0.5",
-    "vscode-diff": "3.0.1",
-    "@vscode/diff": "0.0.2-0"
+    "diff3": "0.0.4",
+    "fast-myers-diff": "3.2.0",
+    "node-diff3": "4.0.0",
+    "vscode-diff": "3.0.1"
   }
 }

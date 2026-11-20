@@ -37,6 +37,8 @@ jobs:
       - run: npm test
       - name: Differential fuzzing against git
         run: node test/fuzz.ts 5000 ${{ github.run_number }}
+      - name: Differential fuzzing of merges against git
+        run: node test/merge-fuzz.ts 2000 ${{ github.run_number }}
       - run: npm run build
 
   windows:
@@ -53,7 +55,7 @@ jobs:
           node-version: 24
           package-manager-cache: false
       - run: npm ci --ignore-scripts
-      - run: node --test test/api.test.ts test/security.test.ts
+      - run: node --test test/api.test.ts test/security.test.ts test/merge.test.ts
 
   oldest-node:
     name: Built package on Node 20
