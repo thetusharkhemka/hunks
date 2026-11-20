@@ -14,7 +14,7 @@ Merging, new
   their `union`; marker size and labels; every diff algorithm and
   whitespace option. Checked against `git merge-file`, `git merge-tree`
   and `git merge` on 34,220 merges of real files, from 20 runs of three
-  consecutive releases of 16 projects, and on 33,000 generated merges.
+  consecutive releases of 16 projects, and on 44,500 generated merges.
 - `hunks merge-file`: the same on the command line, with the options and
   exit codes of `git merge-file`.
 

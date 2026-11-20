@@ -48,6 +48,13 @@ describe('merge', () => {
     assert.deepEqual(merge(ours, base, ours), { merged: ours, conflicts: 0 });
   });
 
+  test('an overlap that turns out to be the same edit on both sides is no conflict', () => {
+    // The two sides insert the same lines, aligned differently against the
+    // base; diffing the sides against each other finds nothing to keep.
+    const r = merge('b\na\nb\na\nb\nb\na\n', 'a\nb\na\nb\nb\na\na\n', 'a\nb\na\na\nb\nb\nb\na\n', { labels: { ours: 'o', base: 'b', theirs: 't' } });
+    assert.deepEqual(r, { merged: 'b\na\nb\na\na\nb\nb\nb\na\n', conflicts: 0 });
+  });
+
   test('favor settles every conflict', () => {
     assert.deepEqual(merge(ours, base, theirs, { favor: 'ours' }), { merged: ours, conflicts: 0 });
     assert.deepEqual(merge(ours, base, theirs, { favor: 'theirs' }), { merged: theirs, conflicts: 0 });
