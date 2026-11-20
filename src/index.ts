@@ -149,16 +149,24 @@ function isBytes(value: unknown): value is Uint8Array {
 }
 
 function describe(value: unknown): string {
-  if (value === null) return 'null';
+  if (value === null || value === undefined) return String(value);
   if (Array.isArray(value)) return 'an array';
-  if (ArrayBuffer.isView(value)) return typedArrayName.call(value) ?? 'a DataView';
-  return typeof value;
+  if (ArrayBuffer.isView(value)) return `a ${typedArrayName.call(value) ?? 'DataView'}`;
+  if (value instanceof ArrayBuffer) return 'an ArrayBuffer';
+  const type = typeof value;
+  return type === 'object' ? 'an object' : `a ${type}`;
 }
 
 function checkInput(input: unknown, which: string): asserts input is Input {
   if (typeof input !== 'string' && !isBytes(input)) {
-    throw new TypeError(`hunks: ${which} must be a string or a Uint8Array, got ${describe(input)}`);
+    const hint = input instanceof ArrayBuffer ? '; wrap it as new Uint8Array(buffer)' : '';
+    throw new TypeError(`hunks: ${which} must be a string or a Uint8Array, got ${describe(input)}${hint}`);
   }
+}
+
+/** A RegExp, including one made in another realm. */
+function isRegExp(value: unknown): value is RegExp {
+  return value instanceof RegExp || Object.prototype.toString.call(value) === '[object RegExp]';
 }
 
 /**
@@ -202,6 +210,18 @@ function list<T>(value: T | readonly T[] | undefined): readonly T[] {
   return Array.isArray(value) ? value : [value as T];
 }
 
+function patterns(value: RegExp | readonly RegExp[] | undefined): readonly RegExp[] {
+  const all = list(value);
+  if (!all.every(isRegExp)) throw new TypeError('hunks: ignoreMatchingLines must be a RegExp or an array of them');
+  return all;
+}
+
+function anchors(value: string | readonly string[] | undefined): readonly string[] {
+  const all = list(value);
+  if (!all.every((a) => typeof a === 'string')) throw new TypeError('hunks: anchored must be a string or an array of strings');
+  return all;
+}
+
 function count(value: number | undefined, fallback: number, name: string): number {
   if (value === undefined) return fallback;
   if (!Number.isInteger(value) || value < 0) throw new RangeError(`hunks: ${name} must be a non-negative integer, got ${value}`);
@@ -221,8 +241,8 @@ function engineOptions(options: DiffOptions, bytes: boolean, limit: Deadline): E
     ignoreWhitespaceAtEol: !!options.ignoreWhitespaceAtEol,
     ignoreCrAtEol: !!options.ignoreCrAtEol,
     ignoreBlankLines: !!options.ignoreBlankLines,
-    ignoreMatchingLines: list(options.ignoreMatchingLines),
-    anchors: bytes ? list(options.anchored).map(byteString) : list(options.anchored),
+    ignoreMatchingLines: patterns(options.ignoreMatchingLines),
+    anchors: bytes ? anchors(options.anchored).map(byteString) : anchors(options.anchored),
     git: compat.git,
     deadline: limit,
   };
@@ -238,7 +258,7 @@ function funcMatcher(option: HunkOptions['funcname'], bytes: boolean): FuncMatch
     return bytes ? textOf(raw) : raw;
   };
   const back = (h: string): string => (bytes ? byteString(h) : h);
-  if (option instanceof RegExp) {
+  if (isRegExp(option)) {
     const re = option;
     return (side, i) => {
       // As git does, match without the line break ("\n" or "\r\n").

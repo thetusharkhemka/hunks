@@ -62,7 +62,7 @@ git, and hunks:
 
 Both are correct. Only the second shows what the author did: jsdiff's version starts the new comment from its second line and takes the opening `/**` of the next one.
 
-Then there is speed. Between react-dom 19.0 and 19.1, the 24,717-line client build was largely rewritten. jsdiff takes 11.6 seconds to diff it. hunks takes 106 ms, or 30 ms with histogram.
+Then there is speed. Between react-dom 19.0 and 19.1, the 24,717-line client build was largely rewritten. jsdiff takes 8.5 seconds to diff it. hunks takes 114 ms, or 16 ms with histogram.
 
 The usual way out is to spawn git. The [`git-diff`](https://www.npmjs.com/package/git-diff) package, with about 900,000 weekly downloads, does exactly that, which rules out browsers, edge runtimes and sandboxes.
 
@@ -71,7 +71,7 @@ The usual way out is to spawn git. The [`git-diff`](https://www.npmjs.com/packag
 Parity is not a goal, it is a test. The suite runs the git binary on the same input and compares bytes:
 
 - **Real code.** 634 changed files from consecutive releases of express, eslint, webpack, react-dom, typescript, three, vue, lodash and others, under 11 option sets. All identical.
-- **Generated code.** 98,000 cases built to break diff engines: heavy duplication, sliding blocks, CRLF, missing final newlines, invalid UTF-8, multibyte function names at the 80-byte header limit, and random combinations of every option. All identical.
+- **Generated code.** 140,000 cases built to break diff engines: heavy duplication, sliding blocks, CRLF, missing final newlines, invalid UTF-8, multibyte function names at the 80-byte header limit, and random combinations of every option. All identical.
 - **The corners.** Behaviour found by reading git's source: with `-U0` git trims the common tail in 1 KiB blocks before diffing, which can move where a change lands; hunk headers are cut at the first byte sequence git does not accept as UTF-8; `--ignore-blank-lines` counts a final one-byte line as blank. hunks does all of it.
 
 On the same real files, string input is checked against git's output too, `diff()` is checked to rebuild exactly into `patch()`'s text, and `edits()` to turn every old file into the new one. The test suite repeats the comparisons against whichever git is installed, so parity can be re-checked on any machine. hunks follows current git; see [Compatibility](#compatibility) for the three details that changed after git 2.43.
@@ -201,11 +201,11 @@ Median time per diff, in a fresh process per measurement. Files are real: the sa
 
 | | hunks | hunks histogram | diff (jsdiff) | @jest/diff-sequences | fast-myers-diff | diff-match-patch | vscode-diff | @vscode/diff |
 | --- | --: | --: | --: | --: | --: | --: | --: | --: |
-| express response.js, 1,180 lines | 1.6 ms | 1.5 ms | 5.4 ms | 1.0 ms | 4.0 ms | 1.9 ms | 18 ms | 18 ms |
-| lodash.js, 17,162 lines, one fix | 8.4 ms | 8.2 ms | 10 ms | 13 ms | 12 ms | 13 ms | 19 ms | 17 ms |
-| jquery.js, 10,882 lines | 8.1 ms | 12 ms | 279 ms | 35 ms | 41 ms | 44 ms | 325 ms | 328 ms |
-| react-dom client, 24,717 lines, rewritten | 106 ms | 30 ms | 11.6 s | 768 ms | 1.3 s | 1.2 s | 13.8 s | 15.2 s |
-| three.js WebGPU build, 63,634 lines | 78 ms | 65 ms | 6.8 s | 638 ms | 778 ms | 786 ms | 1.9 s | 1.9 s |
+| express response.js, 1,180 lines | 1.8 ms | 1.5 ms | 3.9 ms | 1.0 ms | 3.3 ms | 1.8 ms | 12 ms | 13 ms |
+| lodash.js, 17,162 lines, one fix | 7.1 ms | 7.3 ms | 9.5 ms | 9.7 ms | 8.4 ms | 10 ms | 14 ms | 13 ms |
+| jquery.js, 10,882 lines | 6.4 ms | 5.4 ms | 241 ms | 35 ms | 40 ms | 33 ms | 296 ms | 294 ms |
+| react-dom client, 24,717 lines, rewritten | 114 ms | 16 ms | 8.5 s | 742 ms | 941 ms | 964 ms | 10.8 s | 11.2 s |
+| three.js WebGPU build, 63,634 lines | 54 ms | 33 ms | 5.8 s | 560 ms | 669 ms | 587 ms | 1.5 s | 1.6 s |
 
 hunks' times include producing the full unified patch. @jest/diff-sequences, fast-myers-diff and diff-match-patch only compute an edit script, and the two VS Code libraries also refine changes down to characters, so this is not like for like; it is what you get from each. @vscode/diff was measured with its TypeScript backend, since its WebAssembly one panics in version 0.0.2-0. Node 22.23, Intel Xeon at 2.1 GHz. To reproduce: `cd bench && npm install --ignore-scripts && node bench.ts`.
 

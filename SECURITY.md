@@ -38,8 +38,10 @@ are shown in caret notation (`^[`), and code points that are invisible or
 reorder text are shown as `<U+202E>`. That covers the bidirectional
 overrides of Trojan Source attacks, zero-width characters, Unicode tags
 used to hide instructions, and stray byte order marks. A file cannot move
-the cursor, write to the clipboard or retitle the window, and it cannot
-make one line look like another. Error messages are escaped the same way.
+the cursor, write to the clipboard or retitle the window, and two lines
+that differ only in invisible characters no longer look the same. Letters
+that merely look alike, such as a Cyrillic а and a Latin a, are shown as
+they are. Error messages are escaped the same way.
 Piped or redirected output is git's bytes, unchanged, so that it can go
 into `git apply`.
 
@@ -47,9 +49,9 @@ into `git apply`.
 
 - `Line.text` and the other fields of `diff()` are the files' contents.
   Escape them before putting them into HTML or a terminal.
-- Patterns you pass as `ignoreMatchingLines` or `funcname` run on every
-  line, and no timeout can interrupt a regular expression. On untrusted
-  input, use patterns without nested repetition.
+- Patterns you pass as `ignoreMatchingLines` or `funcname` run on lines
+  of the input, and no timeout can interrupt a regular expression. On
+  untrusted input, use patterns without nested repetition.
 - Patch content lines are the files' lines, exactly as git writes them.
   A line can contain a carriage return or a vertical tab, and a patch
   parser that also splits lines on those will see more lines than git
