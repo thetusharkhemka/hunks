@@ -95,6 +95,44 @@ describe('cli', () => {
     for (const flag of ['-p', '-u', '--patch', '--exit-code', '--no-index', '--no-ext-diff']) same(flag, 'a.js', 'b.js');
   });
 
+  test('every option behaves as the git flag of the same name', { skip: !hasGit && 'git not installed' }, () => {
+    writeFileSync(join(dir, 'crlf1'), 'a \r\nb\r\n\r\nfunction x\r\nc\n');
+    writeFileSync(join(dir, 'crlf2'), 'a\r\nb\n\n\nfunction x\nc  \n');
+    writeFileSync(join(dir, '-dash'), 'function a() {\n}\n');
+    const flags = [
+      ['--diff-algorithm=minimal'], ['--diff-algorithm', 'patience'], ['--diff-algorithm=default'],
+      ['--minimal'], ['--patience'], ['--histogram'],
+      ['--anchored=function'], ['--anchored', 'function'], ['--indent-heuristic'], ['--no-indent-heuristic'],
+      ['--inter-hunk-context=3'], ['--inter-hunk-context', '3'], ['--function-context'],
+      ['--ignore-all-space'], ['--ignore-space-change'], ['--ignore-space-at-eol'], ['--ignore-cr-at-eol'],
+      ['--ignore-blank-lines'], ['--ignore-matching-lines=^function'], ['--ignore-matching-lines', '^function'],
+      ['--text'], ['-a'], ['--unified=0'], ['-U0'], ['-Ifunction'],
+    ];
+    for (const f of flags) {
+      same(...f, 'a.js', 'b.js');
+      same(...f, 'crlf1', 'crlf2');
+    }
+    same('--', '-dash', 'a.js');
+  });
+
+  test('reports missing values and files it cannot compare', () => {
+    assert.match(hunks('a.js', 'b.js', '-I').err, /-I expects a pattern/);
+    assert.match(hunks('a.js', 'b.js', '--anchored').err, /--anchored expects a value/);
+    assert.match(hunks('--inter-hunk-context=x', 'a.js', 'b.js').err, /expects a number/);
+    assert.match(hunks('--color=sometimes', 'a.js', 'b.js').err, /--color expects always, never or auto/);
+    const d = hunks('.', 'a.js');
+    assert.equal(d.code, 2);
+    assert.match(d.err, /'\.' is a directory/);
+  });
+
+  test('a file it may not read', { skip: (process.platform === 'win32' || process.getuid?.() === 0) && 'root can read anything' }, () => {
+    writeFileSync(join(dir, 'secret'), 'x\n');
+    chmodSync(join(dir, 'secret'), 0);
+    const r = hunks('secret', 'a.js');
+    assert.equal(r.code, 2);
+    assert.equal(r.err, "hunks: could not read 'secret' (permission denied)\n");
+  });
+
   test('colour output highlights changed words', () => {
     writeFileSync(join(dir, 'c1'), 'const total = price * quantity;\n');
     writeFileSync(join(dir, 'c2'), 'const total = price * amount;\n');
