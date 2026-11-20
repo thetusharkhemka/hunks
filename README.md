@@ -94,9 +94,11 @@ patch('a\nb\n', 'a\nc\n', { fromFile: 'a/notes.txt', toFile: 'b/notes.txt' });
 
 Strings in, string out. Pass `Uint8Array`s to work on raw bytes and get bytes back; then even files that are not valid UTF-8 come out exactly as git prints them. If only one side is bytes, the other is taken as UTF-8 and the result is bytes.
 
+The labels are quoted the way git quotes paths: `café.txt` becomes `"a/caf\303\251.txt"`, and a name containing a line break cannot add lines to the patch. To print a name some other way, leave the labels out and write the two lines yourself.
+
 ### `diff(oldText, newText, options?)`
 
-The same hunks as structured data, for rendering. `Uint8Array` input is read as UTF-8.
+The same hunks as structured data, for rendering. Bytes are compared exactly, as `patch()` compares them, so the hunks are always git's; the `text` of each line is then decoded as UTF-8, with U+FFFD standing in for invalid bytes.
 
 ```js
 const { hunks, added, removed } = diff(before, after, { inline: true });
@@ -117,6 +119,8 @@ for (const hunk of hunks) {
 
 With `inline: true`, removed and added lines carry `spans`: the parts that changed, as `[start, end)` offsets into `text`. They come from diffing the words of a whole block of removed lines against the block of added lines, so lines pair up correctly even when they were split, joined or reordered. A line that is new, or too different from anything on the other side for highlighting to help, gets no spans; so does every line of a block too large to read word by word (over 50,000 words and symbols).
 
+`text` is the file's own content. Escape it before you put it into HTML or write it to a terminal.
+
 ### `edits(oldText, newText, options?)`
 
 The raw edit script: 0-based, end-exclusive line ranges, ready for `slice()`.
@@ -129,19 +133,19 @@ edits('a\nb\nc\n', 'a\nx\nc\nd\n');
 
 ### `diffArrays(oldItems, newItems, options?)`
 
-The same engine for any two sequences. Elements are compared with `===`, or through `key`.
+The same engine for any two arrays, or two typed arrays. Elements are compared the way a `Map` compares keys (`===`, except that `NaN` matches `NaN`), or through `key`.
 
 ```js
 diffArrays(oldRows, newRows, { key: (row) => row.id, algorithm: 'histogram' });
 ```
 
-### `inline(removedLines, addedLines)`
+### `inline(removedLines, addedLines, options?)`
 
-The word-level highlighting on its own, for when you have your own line diff.
+The word-level highlighting on its own, for when you have your own line diff: `{ removed, added }`, the spans of every line. Takes `timeout`.
 
 ### Options
 
-Every option maps to a `git diff` flag.
+Every option but `timeout` maps to a `git diff` flag.
 
 | option | git | default |
 | --- | --- | --- |
@@ -158,10 +162,11 @@ Every option maps to a `git diff` flag.
 | `ignoreMatchingLines` | `-I` | none; a `RegExp` or an array of them |
 | `anchored` | `--anchored` | none; a string or an array; implies patience |
 | `funcname` | `diff.<driver>.xfuncname` | git's default: the nearest line above that starts with a letter, `_` or `$`. A `RegExp` (first capture group, else the match), a function `(line) => string \| null`, or `false` |
+| `timeout` | | none; milliseconds, after which a `DiffTimeoutError` is thrown |
 
 `patch` also takes `fromFile` and `toFile` for the `---` and `+++` lines; `diff` takes `inline`.
 
-Which algorithm? `myers` is git's default and what people are used to seeing. `histogram` is much faster on large rewrites (see the benchmarks) and often clearer on code; it is what we would pick for a code review tool.
+Which algorithm? `myers` is git's default and what people are used to seeing. `histogram` is much faster on large rewrites (see the benchmarks) and often clearer on code; it is what we would pick for a code review tool. Its worst case is quadratic, in git as here, so give it a `timeout` when the input comes from strangers.
 
 ## Command line
 
@@ -172,7 +177,23 @@ npx @thetusharkhemka/hunks old.ts new.ts
 npx @thetusharkhemka/hunks --histogram -U5 -w before.json after.json
 ```
 
-The flags are git's, bundles like `-wU1` included. Without colour, the output is exactly that of `git diff --no-index`, header lines and all (blob ids, modes, quoted paths, symbolic links, standard input as `-`, binary files, `/dev/null`), and so is the exit code: 1 when the files differ, 0 when they do not. Errors exit with 2, where git uses 1 or 129. `--quiet` prints nothing and only sets the exit code. With colour, changed words and trailing whitespace are highlighted. hunks compares two files; unlike git, it does not walk directories. `hunks --help` lists everything.
+The flags are git's, bundles like `-wU1` included. Piped or redirected, the output is exactly that of `git diff --no-index`, header lines and all: blob ids, modes, quoted paths, symbolic links, standard input as `-`, pipes such as `<(command)`, binary files, `/dev/null`, files over 512 MiB shown as binary. So is the exit code: 1 when the files differ, 0 when they do not. Every error exits with 2; git exits with 1 for a missing file, the same as for files that differ, and with 128 or 129 for other errors. `--quiet` prints nothing and only sets the exit code.
+
+On a terminal, hunks colours its output and highlights changed words and whitespace errors. Control characters and invisible Unicode in the files are shown as escapes, `^[` or `<U+202E>`, so a file can neither drive your terminal nor hide text from you.
+
+hunks compares two files; unlike git, it does not walk directories. `hunks --help` lists everything.
+
+## Security
+
+hunks is built to run on input you do not control.
+
+- **Time.** Every function takes `timeout` and throws `DiffTimeoutError` when it runs out. Myers and patience grow only a little faster than their input; histogram and minimal can be driven to quadratic time by crafted input, in git as here.
+- **Size.** Up to 512 MiB a side. Larger input is refused before any work starts.
+- **Patches.** Labels are quoted as git quotes paths, and a custom `funcname` cannot break the header line, so a file name cannot forge lines of a patch.
+- **Terminals.** The CLI shows control characters, bidirectional overrides (the trick behind Trojan Source), zero-width characters and Unicode tags as escapes before they reach your terminal. Piped output stays git's bytes.
+- **Supply chain.** No runtime dependencies and no install scripts. `scripts/verify-release.ts` rebuilds a version and compares it with the registry's tarball, file by file.
+
+What is left to you, and how to report a vulnerability: [SECURITY.md](./SECURITY.md).
 
 ## Benchmarks
 
@@ -192,6 +213,7 @@ hunks' times include producing the full unified patch. @jest/diff-sequences, fas
 
 - **git versions.** hunks follows current git. Three details changed after git 2.43, all in uncommon situations: `--minimal` stopped setting aside lines that occur very often (2.50); histogram re-diffs blocks that were merged while sliding (2.54); and `--anchored` tests the anchor against the new side's line (2.54). The test suite checks both behaviours against whichever git it finds.
 - **Text and bytes.** Strings are compared as UTF-16 text and headers are cut on UTF-8 byte counts, as git does. For byte-exact output on input that is not valid UTF-8, pass `Uint8Array`s. Options written as text (`anchored`, `ignoreMatchingLines`, `funcname`) behave the same either way.
+- **Size.** Up to 512 MiB a side: the longest string V8 can hold, and where git stops diffing files as text. The CLI shows larger files as binary, as git does.
 - **Function names.** The default rule is git's. git's language-specific patterns come from attributes in a repository; pass `funcname` a `RegExp` for the same effect.
 - **Index lines.** The CLI abbreviates blob ids to 7 characters, as git does outside a repository. Inside a large repository git may use more.
 - **Runtimes.** Node 20 and later, Bun, Deno and current browsers. The package is ESM; `require()` works in Node 20.19+ and 22.12+.
