@@ -22,6 +22,11 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+    ignore:
+      # @types/node stays on Node 22, the oldest Node the tests run on, so
+      # that the type checker flags APIs which Node 22 does not have.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
     groups:
       development:
         dependency-type: development
