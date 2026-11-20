@@ -53,12 +53,12 @@ const VOCABULARY: number[][] = [
   bytes('a'), bytes('b'), bytes('c'), bytes('d'),
 ];
 
-interface Doc {
+export interface Doc {
   lines: number[][];
   crlf: boolean[];
 }
 
-function pick<T>(r: () => number, xs: readonly T[]): T {
+export function pick<T>(r: () => number, xs: readonly T[]): T {
   return xs[Math.floor(r() * xs.length)];
 }
 
@@ -66,7 +66,7 @@ function randomLine(r: () => number): number[] {
   return [...pick(r, VOCABULARY)];
 }
 
-function generate(r: () => number): Doc {
+export function generate(r: () => number): Doc {
   const n = r() < 0.05 ? 0 : Math.floor(r() * (r() < 0.2 ? 400 : 60));
   // A small palette makes duplicates likely.
   const palette = Array.from({ length: 1 + Math.floor(r() * 25) }, () => randomLine(r));
@@ -74,7 +74,7 @@ function generate(r: () => number): Doc {
   return { lines, crlf: lines.map(() => r() < 0.08) };
 }
 
-function mutate(r: () => number, doc: Doc): Doc {
+export function mutate(r: () => number, doc: Doc): Doc {
   const lines = doc.lines.map((l) => [...l]);
   const crlf = [...doc.crlf];
   const ops = 1 + Math.floor(r() * 6);
@@ -118,7 +118,7 @@ function mutate(r: () => number, doc: Doc): Doc {
   return { lines, crlf };
 }
 
-function render(doc: Doc, finalNewline: boolean): Uint8Array {
+export function render(doc: Doc, finalNewline: boolean): Uint8Array {
   const out: number[] = [];
   doc.lines.forEach((l, i) => {
     out.push(...l);

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
@@ -115,6 +115,27 @@ describe('cli', () => {
     same('--', '-dash', 'a.js');
   });
 
+  test('algorithm flags apply in order, as in git', { skip: !hasGit && 'git not installed' }, () => {
+    const lines = Array.from({ length: 40 }, (_, i) => `l${i}`);
+    const moved = [...lines];
+    moved.splice(5, 0, 'l30');
+    moved.splice(31, 1);
+    moved[10] = 'X';
+    moved.splice(20, 0, 'l2');
+    writeFileSync(join(dir, 'anc-a'), lines.join('\n') + '\n');
+    writeFileSync(join(dir, 'anc-b'), moved.join('\n') + '\n');
+    // --anchored switches to patience; a later algorithm flag switches away,
+    // and --patience also drops the anchors given before it.
+    for (const flags of [
+      ['--anchored=l30', '--histogram'], ['--histogram', '--anchored=l30'],
+      ['--anchored=l30', '--diff-algorithm=myers'], ['--anchored=l30', '--patience'],
+      ['--patience', '--anchored=l30', '--anchored=l2'], ['--anchored=l30', '--histogram', '--diff-algorithm=patience'],
+      ['--anchored=l30', '--histogram', '--patience'], ['--minimal', '--histogram'],
+    ]) {
+      same(...flags, 'anc-a', 'anc-b');
+    }
+  });
+
   test('reports missing values and files it cannot compare', () => {
     assert.match(hunks('a.js', 'b.js', '-I').err, /-I expects a pattern/);
     assert.match(hunks('a.js', 'b.js', '--anchored').err, /--anchored expects a value/);
@@ -158,5 +179,78 @@ describe('cli', () => {
   test('--help and --version', () => {
     assert.match(hunks('--help').out, /Usage: hunks/);
     assert.match(hunks('--version').out, /^\d+\.\d+\.\d+\n$/);
+  });
+});
+
+describe('cli merge-file', () => {
+  let mdir = '';
+  const env = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' };
+  const runIn = (cmd: string, args: string[]) => {
+    const r = spawnSync(cmd, args, { cwd: mdir, env });
+    return { out: r.stdout.toString('latin1'), err: r.stderr.toString(), code: r.status };
+  };
+  const git = (...args: string[]) => runIn('git', ['merge-file', ...args]);
+  const hunks = (...args: string[]) => runIn(process.execPath, [cli, 'merge-file', ...args]);
+  const same = (...args: string[]) => {
+    const g = git(...args);
+    const h = hunks(...args);
+    assert.equal(h.out, g.out, `output for ${args.join(' ')}`);
+    assert.equal(h.code, g.code, `exit status for ${args.join(' ')}`);
+  };
+
+  before(() => {
+    mdir = mkdtempSync(join(tmpdir(), 'hunks-merge-cli-'));
+    const files: Record<string, string | Buffer> = {
+      base: 'one\ntwo\nthree\nfour\nfive\nsix\nseven\n',
+      ours: 'one\nTWO\nthree\nfour\nfive\nsix\nSEVEN\n',
+      theirs: 'one\n2\nthree\nfour\nfive\nsix\n7\n',
+      clean: 'one\ntwo\nthree\nfour\nfive\nsix\nseven!\n',
+      bin: Buffer.from('one\0two\n'),
+      many_base: Array.from({ length: 200 }, (_, i) => `${i}\na\nb\nc\nd\n`).join(''),
+      many_ours: Array.from({ length: 200 }, (_, i) => `O${i}\na\nb\nc\nd\n`).join(''),
+      many_theirs: Array.from({ length: 200 }, (_, i) => `T${i}\na\nb\nc\nd\n`).join(''),
+    };
+    for (const [name, content] of Object.entries(files)) writeFileSync(join(mdir, name), content);
+  });
+  after(() => rmSync(mdir, { recursive: true, force: true }));
+
+  test('prints what git merge-file -p prints, with the same exit status', { skip: !hasGit && 'git not installed' }, () => {
+    const flags = [
+      [], ['--diff3'], ['--zdiff3'], ['--ours'], ['--theirs'], ['--union'],
+      ['--marker-size=3'], ['--marker-size', '0'], ['--marker-size=-2'],
+      ['-L', 'mine', '-L', 'old'], ['-Lmine', '-Lold', '-Lyours'], ['-pq'],
+      ['--zdiff3', '--no-diff3'], ['--union', '--no-ours'], ['--stdout'],
+    ];
+    for (const f of flags) same('-p', ...f, 'ours', 'base', 'theirs');
+    same('-p', 'clean', 'base', 'theirs');
+    same('-p', 'ours', 'base', 'base');
+  });
+
+  test('writes the result into the first file, as git does', { skip: !hasGit && 'git not installed' }, () => {
+    writeFileSync(join(mdir, 'g'), 'one\nTWO\nthree\nfour\nfive\nsix\nSEVEN\n');
+    writeFileSync(join(mdir, 'h'), 'one\nTWO\nthree\nfour\nfive\nsix\nSEVEN\n');
+    const g = git('g', 'base', 'theirs');
+    const h = hunks('h', 'base', 'theirs');
+    assert.equal(h.code, g.code);
+    assert.equal(h.out, '');
+    assert.equal(readFileSync(join(mdir, 'h'), 'utf8'), readFileSync(join(mdir, 'g'), 'utf8').replaceAll('<<<<<<< g', '<<<<<<< h'));
+  });
+
+  test('the exit status counts conflicts, up to 127', { skip: !hasGit && 'git not installed' }, () => {
+    same('-p', 'many_ours', 'many_base', 'many_theirs');
+    assert.equal(hunks('-p', 'many_ours', 'many_base', 'many_theirs').code, 127);
+  });
+
+  test('errors exit with 255 and usage errors with 129, as in git', { skip: !hasGit && 'git not installed' }, () => {
+    for (const args of [['-p', 'nope', 'base', 'theirs'], ['-p', 'bin', 'base', 'theirs'], ['-p', '.', 'base', 'theirs']]) {
+      assert.equal(hunks(...args).code, git(...args).code, args.join(' '));
+      assert.equal(hunks(...args).code, 255);
+    }
+    for (const args of [['-p', 'ours', 'base'], ['-p', '-L', 'a', '-L', 'b', '-L', 'c', '-L', 'd', 'ours', 'base', 'theirs'], ['--bogus', 'ours', 'base', 'theirs']]) {
+      assert.equal(hunks(...args).code, 129, args.join(' '));
+      assert.equal(git(...args).code, 129, args.join(' '));
+    }
+    assert.match(hunks('-p', 'bin', 'base', 'theirs').err, /cannot merge binary files: 'bin'/);
+    assert.equal(hunks('-q', '-p', 'nope', 'base', 'theirs').err, '');
   });
 });

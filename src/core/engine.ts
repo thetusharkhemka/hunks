@@ -36,7 +36,7 @@ export function diffSides(a: Side, b: Side, classes: number, algorithm: Algorith
   indentHeuristic: boolean;
   anchors: readonly string[];
   git: number;
-  /** As with git, --minimal survives a switch to patience by --anchored. */
+  /** Also minimal, as patience with --minimal was before git 2.53. */
   minimal?: boolean;
   deadline?: Deadline;
 }): [Uint8Array, Uint8Array] {
@@ -87,7 +87,9 @@ export function buildScript(a: Side, b: Side, ca: Uint8Array, cb: Uint8Array): C
 export function run(textA: string, textB: string, opts: EngineOptions, bytes: boolean): EngineResult {
   const { a, b, classes } = classify(textA, textB, opts);
   const algorithm = opts.anchors.length > 0 ? 'patience' : opts.algorithm;
-  const [ca, cb] = diffSides(a, b, classes, algorithm, { ...opts, minimal: opts.algorithm === 'minimal' });
+  // Before git 2.53, --minimal survived the switch to patience that
+  // --anchored makes; since then the switch clears it.
+  const [ca, cb] = diffSides(a, b, classes, algorithm, { ...opts, minimal: opts.algorithm === 'minimal' && opts.git < 253 });
   const changes = buildScript(a, b, ca, cb);
 
   if (opts.ignoreBlankLines) {

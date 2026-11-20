@@ -1,7 +1,7 @@
 {
   "name": "@thetusharkhemka/hunks",
   "version": "1.2.0",
-  "description": "git's diff engine in TypeScript: output byte-identical to git diff, with Myers, patience, histogram and the indent heuristic. Zero dependencies.",
+  "description": "git's diff and merge engine in TypeScript: diffs byte-identical to git diff, three-way merges byte-identical to git merge-file. Myers, patience, histogram, the indent heuristic. Zero dependencies.",
   "keywords": [
     "diff",
     "git",
@@ -15,7 +15,12 @@
     "xdiff",
     "line-diff",
     "word-diff",
-    "code-review"
+    "code-review",
+    "merge",
+    "three-way-merge",
+    "diff3",
+    "merge-file",
+    "conflict"
   ],
   "license": "MIT",
   "type": "module",

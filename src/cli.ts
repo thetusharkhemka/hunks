@@ -9,9 +9,9 @@
  */
 
 import { createHash } from 'node:crypto';
-import { closeSync, lstatSync, openSync, readFileSync, readlinkSync, readSync, statSync, type Stats } from 'node:fs';
+import { closeSync, lstatSync, openSync, readFileSync, readlinkSync, readSync, statSync, writeFileSync, type Stats } from 'node:fs';
 import { fileLine, quotePath } from './core/quote.ts';
-import { diff, patch, type Algorithm, type Line, type PatchOptions } from './index.ts';
+import { diff, merge, patch, type Algorithm, type Line, type MergeOptions, type PatchOptions } from './index.ts';
 
 const HELP = `Usage: hunks [options] <old> <new>
 
@@ -19,6 +19,9 @@ Compare two files the way \`git diff --no-index\` does. Use - for standard
 input; pipes such as <(command) work too. Exits with 1 if the files differ,
 0 if not, 2 on error. -p, -u, --patch, --exit-code, --no-index and
 --no-ext-diff are accepted and change nothing.
+
+hunks merge-file merges three files the way \`git merge-file\` does; see
+hunks merge-file --help.
 
 On a terminal, control characters and invisible Unicode in the files are
 shown as escapes such as ^[ and <U+202E>, so a file can neither drive the
@@ -67,6 +70,13 @@ interface Cli {
 
 const ALGORITHMS = ['myers', 'minimal', 'patience', 'histogram'];
 
+/** git compares algorithm names without regard to case; "default" is myers. */
+function algorithmName(v: string): Algorithm {
+  const name = v.toLowerCase() === 'default' ? 'myers' : v.toLowerCase();
+  if (!ALGORITHMS.includes(name)) throw new UsageError(`unknown diff algorithm '${v}'`);
+  return name as Algorithm;
+}
+
 function parse(argv: string[]): Cli {
   const cli: Cli = { options: {}, color: 'auto', inline: true, text: false, quiet: false, files: [] };
   const o = cli.options;
@@ -78,10 +88,7 @@ function parse(argv: string[]): Cli {
     return Number(v);
   };
   const algorithm = (v: string): void => {
-    // git compares these names without regard to case.
-    const name = v.toLowerCase() === 'default' ? 'myers' : v.toLowerCase();
-    if (!ALGORITHMS.includes(name)) throw new UsageError(`unknown diff algorithm '${v}'`);
-    o.algorithm = name as Algorithm;
+    o.algorithm = algorithmName(v);
   };
   const regex = (v: string): RegExp => {
     try {
@@ -156,9 +163,12 @@ function parse(argv: string[]): Cli {
       case '--function-context': flag(); o.functionContext = true; break;
       case '--diff-algorithm': algorithm(value()); break;
       case '--histogram': flag(); o.algorithm = 'histogram'; break;
-      case '--patience': flag(); o.algorithm = 'patience'; break;
+      // git's --patience also drops anchors given before it.
+      case '--patience': flag(); o.algorithm = 'patience'; anchors.length = 0; break;
       case '--minimal': flag(); o.algorithm = 'minimal'; break;
-      case '--anchored': anchors.push(value()); break;
+      // As in git, --anchored switches to patience; a later algorithm
+      // flag switches away again, and the anchors then go unused.
+      case '--anchored': anchors.push(value()); o.algorithm = 'patience'; break;
       case '--indent-heuristic': flag(); o.indentHeuristic = true; break;
       case '--no-indent-heuristic': flag(); o.indentHeuristic = false; break;
       case '--ignore-all-space': flag(); o.ignoreWhitespace = true; break;
@@ -181,7 +191,7 @@ function parse(argv: string[]): Cli {
       default: throw new UsageError(`unknown option '${arg}'`);
     }
   }
-  if (anchors.length) o.anchored = anchors;
+  if (anchors.length && o.algorithm === 'patience') o.anchored = anchors;
   if (ignore.length) o.ignoreMatchingLines = ignore;
   if (cli.files.length !== 2) throw new UsageError('expected two files to compare');
   return cli;
@@ -653,12 +663,199 @@ function main(argv: string[]): number {
   return 1;
 }
 
-try {
-  process.exitCode = main(process.argv.slice(2));
-} catch (err) {
+// ---------------------------------------------------------------------------
+// hunks merge-file
+
+const MERGE_HELP = `Usage: hunks merge-file [options] <current> <base> <other>
+
+Merge the changes that lead from <base> to <other> into <current>, the way
+\`git merge-file\` does. The result replaces <current>, or, with -p, goes to
+standard output. Exits with the number of conflicts (at most 127), 255 on
+error and 129 on a usage error, as git does.
+
+  -p, --stdout                print the result instead of writing <current>
+      --diff3                 also show the base in each conflict
+      --zdiff3                as --diff3, after moving lines both sides
+                              share out of the conflict
+      --ours, --theirs, --union
+                              settle conflicts with one side, or with both
+      --marker-size=<n>       length of the conflict markers (default 7)
+      --diff-algorithm=<a>    myers (default), minimal, patience or histogram
+  -L <label>                  names for <current>, <base> and <other>, in
+                              that order (default: the file names)
+  -q, --quiet                 print no error messages
+  -h, --help                  show this help
+`;
+
+interface MergeCli {
+  toStdout: boolean;
+  quiet: boolean;
+  options: MergeOptions;
+  labels: string[];
+  files: string[];
+}
+
+function parseMerge(argv: string[], cli: MergeCli): void {
+  let style: MergeOptions['style'];
+  let favor: MergeOptions['favor'];
+  let markerSize = 0;
+  const label = (v: string | undefined): void => {
+    if (v === undefined) throw new UsageError('-L expects a label');
+    if (cli.labels.length === 3) throw new UsageError('too many labels on the command line');
+    cli.labels.push(v);
+  };
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--') {
+      cli.files.push(...argv.slice(i + 1));
+      break;
+    }
+    if (!arg.startsWith('-') || arg === '-') {
+      cli.files.push(arg);
+      continue;
+    }
+    if (!arg.startsWith('--')) {
+      for (let k = 1; k < arg.length; k++) {
+        const c = arg[k];
+        if (c === 'p') cli.toStdout = true;
+        else if (c === 'q') cli.quiet = true;
+        else if (c === 'h') {
+          process.stdout.write(MERGE_HELP);
+          process.exit(0);
+        } else if (c === 'L') {
+          const rest = arg.slice(k + 1);
+          label(rest !== '' ? rest : argv[++i]);
+          break;
+        } else {
+          throw new UsageError(`unknown option '-${c}'`);
+        }
+      }
+      continue;
+    }
+    const eq = arg.indexOf('=');
+    const name = eq === -1 ? arg : arg.slice(0, eq);
+    const attached = eq === -1 ? undefined : arg.slice(eq + 1);
+    const value = (): string => {
+      if (attached !== undefined) return attached;
+      if (i + 1 >= argv.length) throw new UsageError(`${name} expects a value`);
+      return argv[++i];
+    };
+    const flag = (): void => {
+      if (attached !== undefined) throw new UsageError(`${name} takes no value`);
+    };
+    switch (name) {
+      case '--help': process.stdout.write(MERGE_HELP); process.exit(0);
+      case '--stdout': flag(); cli.toStdout = true; break;
+      case '--no-stdout': flag(); cli.toStdout = false; break;
+      case '--quiet': flag(); cli.quiet = true; break;
+      case '--no-quiet': flag(); cli.quiet = false; break;
+      case '--diff3': flag(); style = 'diff3'; break;
+      case '--zdiff3': flag(); style = 'zdiff3'; break;
+      // In git these set one shared field, so any negation resets it.
+      case '--no-diff3': case '--no-zdiff3': flag(); style = undefined; break;
+      case '--ours': flag(); favor = 'ours'; break;
+      case '--theirs': flag(); favor = 'theirs'; break;
+      case '--union': flag(); favor = 'union'; break;
+      case '--no-ours': case '--no-theirs': case '--no-union': flag(); favor = undefined; break;
+      case '--marker-size': {
+        const v = value();
+        if (!/^[+-]?\d+$/.test(v)) throw new UsageError(`--marker-size expects an integer`);
+        markerSize = Number(v);
+        break;
+      }
+      case '--no-marker-size': flag(); markerSize = 0; break;
+      case '--diff-algorithm': cli.options.algorithm = algorithmName(value()); break;
+      case '--object-id': throw new UsageError('--object-id reads git objects; hunks merges files');
+      default: throw new UsageError(`unknown option '${arg}'`);
+    }
+  }
+  if (cli.files.length !== 3) throw new UsageError('expected three files: <current> <base> <other>');
+  if (style) cli.options.style = style;
+  if (favor) cli.options.favor = favor;
+  // As in git, a size of zero or less means the default.
+  if (markerSize > 0) cli.options.markerSize = markerSize;
+}
+
+/** Read a file to merge as git does: through symbolic links, and pipes too. */
+function readToMerge(path: string): Uint8Array {
+  let st: Stats;
+  try {
+    st = statSync(path);
+  } catch (err) {
+    throw new Error(`could not access '${path}' (${reason(err)})`);
+  }
+  if (st.isDirectory()) throw new Error(`'${path}' is a directory; hunks merges files`);
+  let data: Uint8Array;
+  if (st.isFIFO()) {
+    data = readPipe(path).data!;
+  } else if (!st.isFile()) {
+    throw new Error(`'${path}' is a ${kind(st)}; hunks merges files and pipes`);
+  } else if (st.size > LIMIT) {
+    throw new Error(`cannot merge binary files: '${path}' is over 512 MiB`);
+  } else {
+    try {
+      data = new Uint8Array(readFileSync(path));
+    } catch (err) {
+      throw new Error(`could not read '${path}' (${reason(err)})`);
+    }
+  }
+  if (data.subarray(0, 8000).includes(0)) throw new Error(`cannot merge binary files: '${path}'`);
+  return data;
+}
+
+/** Merged text, made safe for a terminal line by line. */
+function printableLines(data: Uint8Array): string {
+  const text = new TextDecoder('utf-8', { ignoreBOM: true }).decode(data);
+  return text.split('\n').map((line) => new Printer(false).print(line.endsWith('\r') ? line.slice(0, -1) : line)).join('\n');
+}
+
+function mergeFileMain(argv: string[], cli: MergeCli): number {
+  parseMerge(argv, cli);
+  const [current, base, other] = cli.files.map(readToMerge);
+  const names = [...cli.labels, ...cli.files.slice(cli.labels.length)];
+  const { merged, conflicts } = merge(current, base, other, {
+    ...cli.options,
+    labels: { ours: names[0], base: names[1], theirs: names[2] },
+  });
+  if (cli.toStdout) {
+    process.stdout.on('error', (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EPIPE') process.exit(141);
+      if (!cli.quiet) process.stderr.write(`hunks: ${printable(err.message)}\n`);
+      process.exit(255);
+    });
+    process.stdout.write(process.stdout.isTTY ? printableLines(merged) : merged);
+  } else {
+    try {
+      writeFileSync(cli.files[0], merged);
+    } catch (err) {
+      throw new Error(`could not write '${cli.files[0]}' (${reason(err)})`);
+    }
+  }
+  return Math.min(conflicts, 127);
+}
+
+function report(err: unknown, help: string): void {
   let message = err instanceof Error ? err.message : String(err);
   if (message.startsWith('hunks: ')) message = message.slice('hunks: '.length);
   process.stderr.write(`hunks: ${printable(message)}\n`);
-  if (err instanceof UsageError) process.stderr.write(`Try 'hunks --help' for more information.\n`);
-  process.exitCode = 2;
+  if (err instanceof UsageError) process.stderr.write(`Try '${help}' for more information.\n`);
+}
+
+const argv = process.argv.slice(2);
+if (argv[0] === 'merge-file') {
+  const cli: MergeCli = { toStdout: false, quiet: false, options: {}, labels: [], files: [] };
+  try {
+    process.exitCode = mergeFileMain(argv.slice(1), cli);
+  } catch (err) {
+    if (!cli.quiet) report(err, 'hunks merge-file --help');
+    process.exitCode = err instanceof UsageError ? 129 : 255;
+  }
+} else {
+  try {
+    process.exitCode = main(argv);
+  } catch (err) {
+    report(err, 'hunks --help');
+    process.exitCode = 2;
+  }
 }
