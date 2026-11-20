@@ -7,6 +7,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { closeSync, ftruncateSync, mkdirSync, mkdtempSync, openSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
@@ -188,6 +189,13 @@ describe('bytes', () => {
     assert.deepEqual(diff(a, b).hunks.map((h) => h.header), headers);
   });
 
+  test('input over 512 MiB is refused before any work starts', () => {
+    // Zero pages are committed lazily, so this costs no real memory.
+    const big = new Uint8Array((1 << 29) - 23);
+    assert.throws(() => patch(big, 'a\n'), /^RangeError: hunks: the old text is 536870889 bytes; the limit is 536870888 \(512 MiB\)$/);
+    assert.throws(() => diff('a\n', big), /the new text is 536870889 bytes/);
+  });
+
   test('a Uint8Array from another realm is accepted', () => {
     const foreign = runInNewContext('new Uint8Array([97, 10])') as Uint8Array;
     assert.equal(foreign instanceof Uint8Array, false);
@@ -283,6 +291,42 @@ describe('cli: input', () => {
     const r = hunks(['/dev/zero', '/dev/null']);
     assert.equal(r.status, 2);
     assert.match(r.stderr.toString(), /'\/dev\/zero' is a character device/);
+  });
+
+  test('refuses a socket', { skip: !posix }, async () => {
+    const path = join(dir, 'sock');
+    const server = createServer().listen(path);
+    await new Promise((resolve) => server.once('listening', resolve));
+    try {
+      const r = hunks([path, '/dev/null']);
+      assert.equal(r.status, 2);
+      assert.match(r.stderr.toString(), /is a socket; hunks compares files, symbolic links and pipes/);
+    } finally {
+      server.close();
+    }
+  });
+
+  const python = spawnSync('python3', ['--version']).status === 0;
+
+  test('waits for a non-blocking standard input instead of failing on EAGAIN', { skip: (!posix || !python) && 'needs python3' }, () => {
+    // Some parents hand down a non-blocking pipe; reading it then fails
+    // with EAGAIN until data arrives.
+    writeFileSync(join(dir, 'nb-file'), 'a\n');
+    const script = [
+      'import os, subprocess, sys, time',
+      'r, w = os.pipe()',
+      'os.set_blocking(r, False)',
+      "p = subprocess.Popen([sys.argv[1], sys.argv[2], '-', sys.argv[3]], stdin=r, stdout=subprocess.PIPE)",
+      'os.close(r)',
+      'time.sleep(0.5)',
+      "os.write(w, b'b\\n')",
+      'os.close(w)',
+      'sys.stdout.write(p.communicate()[0].decode())',
+      'sys.exit(p.returncode)',
+    ].join('\n');
+    const r = spawnSync('python3', ['-c', script, process.execPath, CLI, join(dir, 'nb-file')], { env: gitEnv });
+    assert.equal(r.status, 1, r.stderr.toString());
+    assert.match(r.stdout.toString(), /\n-b\n\+a\n$/);
   });
 
   test('treats a file over 512 MiB as binary, as git does', { skip: !posix }, () => {
