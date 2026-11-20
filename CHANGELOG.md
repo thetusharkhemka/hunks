@@ -1,6 +1,74 @@
 # Changelog
 
+## 1.2.0
+
+hunks is now built to run on input you do not control. Every change is
+covered by the test suite, and checked against git wherever git defines
+the behaviour.
+
+Library
+- `timeout` on every function: milliseconds, then a `DiffTimeoutError`.
+  One deadline covers the whole call, word highlighting included.
+- Histogram is as fast as git on input crafted to make it quadratic: 8.0 s
+  against git's 8.7 s on 50,000 swapped line pairs. Before, it took over a
+  minute.
+- `fromFile` and `toFile` are quoted as git quotes paths. Before, a name
+  containing a line break could add lines to the patch. Names with
+  non-ASCII characters now print as git prints them (`"a/caf\303\251.txt"`),
+  and a name with a space gets git's trailing tab.
+- A custom `funcname` can no longer break the hunk header line.
+- `diff()` compares `Uint8Array` input byte for byte, as `patch()` does,
+  and decodes only the text of each line. Before, it decoded first, which
+  hid an added or removed byte order mark, and any change from one invalid
+  byte to another.
+- A byte order mark is kept wherever text is decoded. This fixes the `-U0`
+  tail cut and hunk headings that begin with one.
+- Word highlighting stops counting as soon as a block is over its budget,
+  keeps spans right for lines that contain a line break, and no longer
+  marks the CR of a CRLF line ending as changed when it is not.
+- More than 512 MiB on a side is refused with a `RangeError` before any
+  work; options that are not objects throw a `TypeError`.
+- `Uint8Array`s made in another realm, such as Jest's sandbox, are
+  accepted. `diffArrays` takes typed arrays and checks its arguments, and
+  `inline` takes `timeout` and checks its arguments.
+
+Command line
+- On a terminal, control characters, bidirectional overrides, zero-width
+  characters and Unicode tags in the files are shown as escapes (`^[`,
+  `<U+202E>`), so a file can neither drive the terminal nor hide text.
+  Error messages are escaped too. Piped output is unchanged.
+- Pipes are read as git 2.42 and later read them: `hunks <(a) <(b)`
+  compares the outputs. Before, on Linux, it compared the names of the
+  pipes.
+- Devices and sockets are refused instead of read forever. Files over
+  512 MiB show as binary, as in git, and standard input and pipes stop at
+  512 MiB.
+- The `index` line appears only when the blob ids differ, as in git, so no
+  longer for standard input against `/dev/null`.
+- Whitespace errors are found in linear time; in 1.1.0 a line of 80,000
+  spaces took 3.7 s. Spaces before a tab in the indentation are marked,
+  as git marks them.
+- When the reader stops early, as `head` does, hunks exits quietly with
+  status 141, as git does, instead of printing a stack trace.
+- Colour by default follows Node's view of the terminal: `NO_COLOR`,
+  `TERM=dumb` and `FORCE_COLOR=0` turn it off. It never goes into a pipe
+  unless `--color=always` asks for it.
+
+Supply chain
+- A release workflow publishes through npm trusted publishing, with
+  provenance and a required approval; RELEASING.md lists the settings.
+- Actions are pinned to commit SHAs and workflows start without token
+  permissions. CodeQL and OpenSSF Scorecard run on every push. Dependabot
+  waits a week before it proposes an update.
+- `scripts/verify-release.ts` rebuilds a version and compares it with the
+  registry's tarball, file by file. 1.0.0 is identical to what its tag
+  builds.
+- SECURITY.md: what hunks guarantees, what it leaves to the caller, and
+  how to report a vulnerability.
+
 ## 1.1.0
+
+Tagged, but never published to npm; these changes reach npm in 1.2.0.
 
 Found in a full review after 1.0.0. Every change below is checked against
 git in the test suite.
