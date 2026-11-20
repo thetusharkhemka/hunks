@@ -104,6 +104,26 @@ describe('options', () => {
     }
   });
 
+  test('values of the wrong kind are named in the error', () => {
+    // @ts-expect-error: deliberately wrong
+    assert.throws(() => patch(new ArrayBuffer(2), 'a'), /got an ArrayBuffer; wrap it as new Uint8Array\(buffer\)/);
+    // @ts-expect-error: deliberately wrong
+    assert.throws(() => patch({}, 'a'), /got an object$/);
+    // @ts-expect-error: deliberately wrong
+    assert.throws(() => patch(1, 'a'), /got a number$/);
+    // @ts-expect-error: deliberately wrong
+    assert.throws(() => patch('a\n', 'b\n', { ignoreMatchingLines: 'x' }), /ignoreMatchingLines must be a RegExp/);
+    // @ts-expect-error: deliberately wrong
+    assert.throws(() => patch('a\n', 'b\n', { anchored: [1] }), /anchored must be a string/);
+  });
+
+  test('a RegExp from another realm works as a pattern', () => {
+    const foreign = runInNewContext('/^h(ead)$/') as RegExp;
+    assert.equal(foreign instanceof RegExp, false);
+    assert.equal(patch('head\n1\n2\n3\n4\na\n', 'head\n1\n2\n3\n4\nb\n', { funcname: foreign }).split('\n')[0], '@@ -3,4 +3,4 @@ ead');
+    assert.equal(patch('a\n', 'b\n', { ignoreMatchingLines: runInNewContext('/^[ab]$/') as RegExp }), '');
+  });
+
   test('huge context values are clamped, not looped over', () => {
     const a = 'x\n'.repeat(5) + 'a\n' + 'y\n'.repeat(5);
     const b = 'x\n'.repeat(5) + 'b\n' + 'y\n'.repeat(5);

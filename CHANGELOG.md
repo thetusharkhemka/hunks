@@ -11,7 +11,7 @@ Library
   One deadline covers the whole call, word highlighting included.
 - Histogram is as fast as git on input crafted to make it quadratic: 8.0 s
   against git's 8.7 s on 50,000 swapped line pairs. Before, it took over a
-  minute.
+  minute. On real files it is 1.6 to 2 times as fast as in 1.1.0.
 - `fromFile` and `toFile` are quoted as git quotes paths. Before, a name
   containing a line break could add lines to the patch. Names with
   non-ASCII characters now print as git prints them (`"a/caf\303\251.txt"`),
@@ -28,9 +28,11 @@ Library
   marks the CR of a CRLF line ending as changed when it is not.
 - More than 512 MiB on a side is refused with a `RangeError` before any
   work; options that are not objects throw a `TypeError`.
-- `Uint8Array`s made in another realm, such as Jest's sandbox, are
-  accepted. `diffArrays` takes typed arrays and checks its arguments, and
-  `inline` takes `timeout` and checks its arguments.
+- `Uint8Array`s and `RegExp`s made in another realm, such as Jest's
+  sandbox, are accepted. `ignoreMatchingLines` and `anchored` must hold
+  RegExps and strings, and an `ArrayBuffer` passed as text gets an error
+  that says how to wrap it. `diffArrays` takes typed arrays and checks its
+  arguments; `inline` takes `timeout` and checks its arguments.
 
 Command line
 - On a terminal, control characters, bidirectional overrides, zero-width
