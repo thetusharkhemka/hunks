@@ -13,6 +13,7 @@ import { recordContent, type Side } from './core/lines.ts';
 import { byteString, fromBytes, headingBytes, hunkHeader, textOf } from './core/utf8.ts';
 import { CONTEXT, REMOVED, walkHunk } from './core/walk.ts';
 import { inlineSpans, type Span } from './inline.ts';
+import * as M from './core/merge.ts';
 
 export type { Algorithm } from './core/engine.ts';
 export { DiffTimeoutError };
@@ -362,16 +363,23 @@ export function patch(oldText: Input, newText: Input, options: PatchOptions = {}
       if (rec.charCodeAt(rec.length - 1) !== 10) parts.push(NO_NEWLINE);
     });
   }
+  return assemble(parts, bytes, 'patch');
+}
+
+/**
+ * Join output pieces into a string, or, in byte mode (one byte per char),
+ * copy them straight into bytes, which also lets a result outgrow the
+ * longest possible string.
+ */
+function assemble(parts: string[], bytes: boolean, what: string): string | Uint8Array {
   if (!bytes) {
     try {
       return parts.join('');
     } catch (err) {
       if (!(err instanceof RangeError)) throw err;
-      throw new RangeError('hunks: the patch is longer than the longest string JavaScript can hold; pass Uint8Arrays to get it as bytes');
+      throw new RangeError(`hunks: the ${what} is longer than the longest string JavaScript can hold; pass Uint8Arrays to get it as bytes`);
     }
   }
-  // Each char is one byte. Copying the parts straight into the result also
-  // lets a patch outgrow the longest possible string.
   let size = 0;
   for (const p of parts) size += p.length;
   const result = new Uint8Array(size);
@@ -535,4 +543,119 @@ export function inline(
   }
   checkOptions(options);
   return inlineSpans(removed, added, deadline(options.timeout));
+}
+
+export interface MergeOptions {
+  /**
+   * The diff behind the merge. `git merge-file` uses `'myers'`, the
+   * default; `git merge` uses `'histogram'`.
+   */
+  algorithm?: Algorithm;
+  /** Treat lines that differ only in whitespace as the same (`-Xignore-all-space`). */
+  ignoreWhitespace?: boolean;
+  /** Ignore changes in the amount of whitespace (`-Xignore-space-change`). */
+  ignoreWhitespaceChange?: boolean;
+  /** Ignore whitespace at line ends (`-Xignore-space-at-eol`). */
+  ignoreWhitespaceAtEol?: boolean;
+  /** Ignore a carriage return at line ends (`-Xignore-cr-at-eol`). */
+  ignoreCrAtEol?: boolean;
+  /**
+   * How a conflict is written. `'merge'`, the default, shows both sides.
+   * `'diff3'` also shows the base, between `|||||||` and `=======`.
+   * `'zdiff3'` does too, after moving the lines both sides share out of the
+   * conflict.
+   */
+  style?: 'merge' | 'diff3' | 'zdiff3';
+  /** Settle every conflict with our side, their side, or both (`--ours`, `--theirs`, `--union`). */
+  favor?: 'ours' | 'theirs' | 'union';
+  /**
+   * How hard to shrink conflicts. `'zealous-alnum'`, the default and the
+   * level of `git merge-file`, diffs the two sides of each conflict against
+   * each other, keeps only the lines that differ, and joins conflicts that
+   * are separated by three lines or fewer, or by lines with no letter or
+   * digit. `'zealous'`, the level of `git merge`, joins only across three
+   * lines or fewer. `'eager'` only settles changes that are the same on
+   * both sides, and `'minimal'` leaves every overlap in conflict. The
+   * `diff3` and `zdiff3` styles never go past `'eager'`, as in git.
+   */
+  level?: 'minimal' | 'eager' | 'zealous' | 'zealous-alnum';
+  /** Length of the conflict markers, at most 1,048,576. Default `7`. */
+  markerSize?: number;
+  /** Names written after the markers: `<<<<<<< ours`, `||||||| base`, `>>>>>>> theirs`. */
+  labels?: { ours?: string; base?: string; theirs?: string };
+  /** As for `diff`: give up after this many milliseconds. */
+  timeout?: number;
+}
+
+export interface MergeResult<T extends string | Uint8Array = string> {
+  /** The merged text, with conflict markers where the sides disagree. */
+  merged: T;
+  /** How many conflicts `merged` holds; 0 for a clean merge. */
+  conflicts: number;
+}
+
+const LEVELS: Record<string, number> = { minimal: M.MINIMAL, eager: M.EAGER, zealous: M.ZEALOUS, 'zealous-alnum': M.ZEALOUS_ALNUM };
+const STYLES: Record<string, number> = { merge: M.STYLE_MERGE, diff3: M.STYLE_DIFF3, zdiff3: M.STYLE_ZDIFF3 };
+const FAVORS: Record<string, number> = { ours: M.FAVOR_OURS, theirs: M.FAVOR_THEIRS, union: M.FAVOR_UNION };
+
+function pick(table: Record<string, number>, value: unknown, fallback: number, name: string): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'string' || !Object.hasOwn(table, value)) {
+    throw new TypeError(`hunks: ${name} must be ${Object.keys(table).map((k) => `'${k}'`).join(', ')}, got ${typeof value === 'string' ? `'${value}'` : describe(value)}`);
+  }
+  return table[value];
+}
+
+/**
+ * A three-way merge of `ours` and `theirs`, both edited from `base`:
+ * byte for byte what `git merge-file -p ours base theirs` prints. With
+ * `{ algorithm: 'histogram', level: 'zealous' }`, it is the content merge of
+ * `git merge`.
+ *
+ * Strings in, string out; pass `Uint8Array`s for bytes. The arguments come
+ * in the order of `git merge-file`: ours, then the base, then theirs.
+ */
+export function merge(ours: string, base: string, theirs: string, options?: MergeOptions): MergeResult<string>;
+export function merge(ours: Uint8Array, base: Uint8Array, theirs: Uint8Array, options?: MergeOptions): MergeResult<Uint8Array>;
+/** If any side is bytes, the result is bytes. */
+export function merge(ours: string | Uint8Array, base: string | Uint8Array, theirs: string | Uint8Array, options?: MergeOptions): MergeResult<string | Uint8Array>;
+export function merge(ours: Input, base: Input, theirs: Input, options: MergeOptions = {}): MergeResult<string | Uint8Array> {
+  checkInput(ours, 'our text');
+  checkInput(base, 'the base text');
+  checkInput(theirs, 'their text');
+  checkOptions(options);
+  const limit = deadline(options.timeout);
+  const algorithm = options.algorithm ?? 'myers';
+  if (!ALGORITHMS.includes(algorithm)) throw new TypeError(`hunks: unknown algorithm '${algorithm}'`);
+  const markerSize = count(options.markerSize, 7, 'markerSize');
+  if (markerSize === 0) throw new RangeError('hunks: markerSize must be at least 1');
+  // A typo of a few zeros should not ask for gigabytes of '<'.
+  if (markerSize > 1 << 20) throw new RangeError('hunks: markerSize must be at most 1048576');
+  const labels = options.labels ?? {};
+  if (labels === null || typeof labels !== 'object') throw new TypeError(`hunks: labels must be an object, got ${describe(labels)}`);
+  const bytes = typeof ours !== 'string' || typeof base !== 'string' || typeof theirs !== 'string';
+  const label = (value: unknown, which: string): string | null => {
+    if (value === undefined) return null;
+    if (typeof value !== 'string') throw new TypeError(`hunks: labels.${which} must be a string, got ${describe(value)}`);
+    // A line break would let a label add lines of its own to the result.
+    if (/[\r\n]/.test(value)) throw new RangeError(`hunks: labels.${which} cannot contain a line break`);
+    return bytes ? byteString(value) : value;
+  };
+  const out = M.merge3(toText(base, bytes, 'the base text'), toText(ours, bytes, 'our text'), toText(theirs, bytes, 'their text'), {
+    algorithm,
+    ignoreWhitespace: !!options.ignoreWhitespace,
+    ignoreWhitespaceChange: !!options.ignoreWhitespaceChange,
+    ignoreWhitespaceAtEol: !!options.ignoreWhitespaceAtEol,
+    ignoreCrAtEol: !!options.ignoreCrAtEol,
+    style: pick(STYLES, options.style, M.STYLE_MERGE, 'style'),
+    favor: pick(FAVORS, options.favor, M.FAVOR_NONE, 'favor'),
+    level: pick(LEVELS, options.level, M.ZEALOUS_ALNUM, 'level'),
+    markerSize,
+    ours: label(labels.ours, 'ours'),
+    base: label(labels.base, 'base'),
+    theirs: label(labels.theirs, 'theirs'),
+    git: compat.git,
+    deadline: limit,
+  });
+  return { merged: assemble(out.parts, bytes, 'merge'), conflicts: out.conflicts };
 }

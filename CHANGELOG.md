@@ -2,9 +2,21 @@
 
 ## 1.2.0
 
-hunks is now built to run on input you do not control. Every change is
-covered by the test suite, and checked against git wherever git defines
-the behaviour.
+Three-way merging, and hardening for input you do not control. Every
+change is covered by the test suite, and checked against git wherever git
+defines the behaviour.
+
+Merging, new
+- `merge(ours, base, theirs, options)`: git's three-way merge, byte for
+  byte what `git merge-file` prints; with `{ algorithm: 'histogram',
+  level: 'zealous' }`, the content merge of `git merge`. Conflict styles
+  `merge`, `diff3` and `zdiff3`; conflicts settled for `ours`, `theirs` or
+  their `union`; marker size and labels; every diff algorithm and
+  whitespace option. Checked against `git merge-file`, `git merge-tree`
+  and `git merge` on 34,220 merges of real files, from three consecutive
+  releases of 20 projects, and on 33,000 generated merges.
+- `hunks merge-file`: the same on the command line, with the options and
+  exit codes of `git merge-file`.
 
 Library
 - `timeout` on every function: milliseconds, then a `DiffTimeoutError`.
@@ -28,6 +40,8 @@ Library
   marks the CR of a CRLF line ending as changed when it is not.
 - More than 512 MiB on a side is refused with a `RangeError` before any
   work; options that are not objects throw a `TypeError`.
+- With `algorithm: 'minimal'` and `anchored`, the diff follows git 2.53:
+  the anchors switch to patience and leave minimal behind.
 - `Uint8Array`s and `RegExp`s made in another realm, such as Jest's
   sandbox, are accepted. `ignoreMatchingLines` and `anchored` must hold
   RegExps and strings, and an `ArrayBuffer` passed as text gets an error
@@ -35,6 +49,10 @@ Library
   arguments; `inline` takes `timeout` and checks its arguments.
 
 Command line
+- Algorithm flags apply in order, as in git: `--anchored` switches to
+  patience, a later `--histogram` or `--diff-algorithm` switches away and
+  leaves the anchors unused, and `--patience` drops anchors given before
+  it. Before, any `--anchored` forced patience.
 - On a terminal, control characters, bidirectional overrides, zero-width
   characters and Unicode tags in the files are shown as escapes (`^[`,
   `<U+202E>`), so a file can neither drive the terminal nor hide text.

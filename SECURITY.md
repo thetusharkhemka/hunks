@@ -28,10 +28,11 @@ the input is untrusted: every function accepts it, and it throws
 budget of 50,000 tokens per block and stops counting as soon as it runs
 out.
 
-**Patches cannot be forged through their labels.** `fromFile` and `toFile`
-are quoted as git quotes paths, so a name containing a line break, a quote
-or an escape character stays on its own line. A custom `funcname` cannot
-break the hunk header line either.
+**Patches and merges cannot be forged through their labels.** `fromFile`
+and `toFile` are quoted as git quotes paths, so a name containing a line
+break, a quote or an escape character stays on its own line. A custom
+`funcname` cannot break the hunk header line, and a merge label containing
+a line break is refused.
 
 **The CLI is safe to point at a terminal.** Control characters in the files
 are shown in caret notation (`^[`), and code points that are invisible or
@@ -41,9 +42,9 @@ used to hide instructions, and stray byte order marks. A file cannot move
 the cursor, write to the clipboard or retitle the window, and two lines
 that differ only in invisible characters no longer look the same. Letters
 that merely look alike, such as a Cyrillic а and a Latin a, are shown as
-they are. Error messages are escaped the same way.
-Piped or redirected output is git's bytes, unchanged, so that it can go
-into `git apply`.
+they are. Error messages are escaped the same way, and so is the result
+of `hunks merge-file -p`. Piped or redirected output is git's bytes,
+unchanged, so that it can go into `git apply`.
 
 ## What it leaves to you
 

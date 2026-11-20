@@ -1,8 +1,8 @@
 # hunks
 
-**git's diff engine, in TypeScript.**
+**git's diff and merge engine, in TypeScript.**
 
-hunks produces the same diffs as `git diff`, byte for byte: the same algorithms (Myers with git's heuristics, patience, histogram), the same placement of ambiguous changes, the same hunk headers. No dependencies, no child processes, no WebAssembly. It runs in Node, Bun, Deno and the browser.
+hunks produces the same diffs as `git diff`, byte for byte: the same algorithms (Myers with git's heuristics, patience, histogram), the same placement of ambiguous changes, the same hunk headers. It merges as `git merge-file` and `git merge` do, conflict markers and all. No dependencies, no child processes, no WebAssembly. It runs in Node, Bun, Deno and the browser.
 
 <p align="center">
   <img src="https://cdn.jsdelivr.net/npm/@thetusharkhemka/hunks@1/media/demo.svg" alt="hunks comparing two versions of a TypeScript file, with changed words highlighted" width="602">
@@ -31,7 +31,7 @@ Most JavaScript diff libraries implement Myers' 1986 algorithm as published. It 
 - It slides ambiguous blocks of added or removed lines to where a person would put them. Michael Haggerty fitted this *indent heuristic* to 6,668 hand-rated cases from 29 projects: git's previous placement was wrong 65.9% of the time, the heuristic 2.2% ([git 433860f](https://github.com/git/git/commit/433860f3d0beb0c6f205290bd16cda413148f098)).
 - It adopted histogram diff, which researchers found gives better diffs of source code, and recommend for it ([Nugroho, Hata & Matsumoto, 2020](https://doi.org/10.1007/s10664-019-09772-z)).
 
-None of that reached JavaScript. Across 634 changed files from 20 popular npm releases, [`diff`](https://www.npmjs.com/package/diff) (jsdiff, around 195 million downloads a week) disagrees with git on 125, about one in five. Here is one, from Express 5.1.0. jsdiff:
+None of that reached JavaScript. Across 634 changed files from 20 popular npm releases, [`diff`](https://www.npmjs.com/package/diff) (jsdiff, around 200 million downloads a week) disagrees with git on 127, about one in five. Here is one, from Express 5.1.0. jsdiff:
 
 ```diff
  
@@ -72,9 +72,10 @@ Parity is not a goal, it is a test. The suite runs the git binary on the same in
 
 - **Real code.** 634 changed files from consecutive releases of express, eslint, webpack, react-dom, typescript, three, vue, lodash and others, under 11 option sets. All identical.
 - **Generated code.** 140,000 cases built to break diff engines: heavy duplication, sliding blocks, CRLF, missing final newlines, invalid UTF-8, multibyte function names at the 80-byte header limit, and random combinations of every option. All identical.
-- **The corners.** Behaviour found by reading git's source: with `-U0` git trims the common tail in 1 KiB blocks before diffing, which can move where a change lands; hunk headers are cut at the first byte sequence git does not accept as UTF-8; `--ignore-blank-lines` counts a final one-byte line as blank. hunks does all of it.
+- **Merges.** 34,220 three-way merges of real files, built from three consecutive releases of the same 20 projects (1,930 of them with conflicts), and 33,000 generated merges. They are checked against `git merge-file` (every conflict style, every way of settling conflicts, marker sizes, labels), `git merge-tree` and `git merge` (every diff algorithm and whitespace option). All identical, conflict counts included.
+- **The corners.** Behaviour found by reading git's source: with `-U0` git trims the common tail in 1 KiB blocks before diffing, which can move where a change lands; hunk headers are cut at the first byte sequence git does not accept as UTF-8; `--ignore-blank-lines` counts a final one-byte line as blank; conflict markers take CRLF line endings from the lines around them. hunks does all of it.
 
-On the same real files, string input is checked against git's output too, `diff()` is checked to rebuild exactly into `patch()`'s text, and `edits()` to turn every old file into the new one. The test suite repeats the comparisons against whichever git is installed, so parity can be re-checked on any machine. hunks follows current git; see [Compatibility](#compatibility) for the three details that changed after git 2.43.
+On the same real files, string input is checked against git's output too, `diff()` is checked to rebuild exactly into `patch()`'s text, and `edits()` to turn every old file into the new one. The test suite repeats the comparisons against whichever git is installed, so parity can be re-checked on any machine. hunks follows current git; see [Compatibility](#compatibility) for the details that changed after git 2.43.
 
 ## API
 
@@ -120,6 +121,44 @@ for (const hunk of hunks) {
 With `inline: true`, removed and added lines carry `spans`: the parts that changed, as `[start, end)` offsets into `text`. They come from diffing the words of a whole block of removed lines against the block of added lines, so lines pair up correctly even when they were split, joined or reordered. A line that is new, or too different from anything on the other side for highlighting to help, gets no spans; so does every line of a block too large to read word by word (over 50,000 words and symbols).
 
 `text` is the file's own content. Escape it before you put it into HTML or write it to a terminal.
+
+### `merge(ours, base, theirs, options?)`
+
+A three-way merge of two texts edited from a common base, byte for byte what `git merge-file -p ours base theirs` prints. Changes that do not overlap are taken from both sides; overlapping changes become conflicts, shrunk to the lines that really differ.
+
+```js
+const base   = 'host = "localhost"\nport = 8080\nretries = 3\n';
+const ours   = 'host = "example.com"\nport = 8080\nretries = 5\n';
+const theirs = 'host = "localhost"\nport = 8080\nretries = 4\n';
+
+const { merged, conflicts } = merge(ours, base, theirs, { labels: { ours: 'mine', theirs: 'theirs' } });
+// conflicts: 1
+// merged:
+//   host = "example.com"
+//   port = 8080
+//   <<<<<<< mine
+//   retries = 5
+//   =======
+//   retries = 4
+//   >>>>>>> theirs
+```
+
+Our new host merges cleanly; both sides changed `retries`, so that line is a conflict.
+
+`conflicts` is how many conflicts `merged` holds; 0 means the merge is clean. As with `patch()`, strings in give a string out and `Uint8Array`s give bytes. The order of the arguments is that of `git merge-file`: ours, the base, theirs.
+
+| option | git | default |
+| --- | --- | --- |
+| `style` | `--diff3`, `--zdiff3`, `merge.conflictStyle` | `'merge'`; `'diff3'` also shows the base, `'zdiff3'` shows it after moving shared lines out of the conflict |
+| `favor` | `--ours`, `--theirs`, `--union` | none; settles every conflict with one side, or with both |
+| `level` | | `'zealous-alnum'`, as `git merge-file`; `git merge` uses `'zealous'`; also `'eager'`, `'minimal'` |
+| `algorithm` | `--diff-algorithm`, `-Xdiff-algorithm` | `'myers'`, as `git merge-file`; `git merge` uses `'histogram'` |
+| `ignoreWhitespace` and the other whitespace options | `-Xignore-all-space` and so on | `false` |
+| `markerSize` | `--marker-size` | `7` |
+| `labels` | `-L` | none: `{ ours, base, theirs }`, the names after the markers |
+| `timeout` | | none |
+
+For the content merge of `git merge`, pass `{ algorithm: 'histogram', level: 'zealous' }`, with `labels` such as `{ ours: 'HEAD', theirs: 'feature' }`.
 
 ### `edits(oldText, newText, options?)`
 
@@ -181,7 +220,13 @@ The flags are git's, bundles like `-wU1` included. Piped or redirected, the outp
 
 On a terminal, hunks colours its output and highlights changed words and whitespace errors. Control characters and invisible Unicode in the files are shown as escapes, `^[` or `<U+202E>`, so a file can neither drive your terminal nor hide text from you.
 
-hunks compares two files; unlike git, it does not walk directories. `hunks --help` lists everything.
+`hunks merge-file` merges three files as `git merge-file` does, writing the result into the first file, or to standard output with `-p`. It takes git's options (`--diff3`, `--zdiff3`, `--ours`, `--theirs`, `--union`, `--marker-size`, `--diff-algorithm`, `-L`) and exits as git does: with the number of conflicts, up to 127, or 255 on an error.
+
+```sh
+npx @thetusharkhemka/hunks merge-file -p --zdiff3 mine.ts base.ts theirs.ts
+```
+
+hunks compares two files; unlike git, it does not walk directories. `hunks --help` and `hunks merge-file --help` list everything. A file named `merge-file` is compared as `./merge-file`.
 
 ## Security
 
@@ -211,14 +256,15 @@ hunks' times include producing the full unified patch. @jest/diff-sequences, fas
 
 ## Compatibility
 
-- **git versions.** hunks follows current git. Three details changed after git 2.43, all in uncommon situations: `--minimal` stopped setting aside lines that occur very often (2.50); histogram re-diffs blocks that were merged while sliding (2.54); and `--anchored` tests the anchor against the new side's line (2.54). The test suite checks both behaviours against whichever git it finds.
+- **git versions.** hunks follows current git. A few details changed after git 2.43, all in uncommon situations: `--minimal` stopped setting aside lines that occur very often (2.50); `--anchored` stopped combining with `--minimal` (2.53); histogram re-diffs blocks that were merged while sliding (2.54); `--anchored` tests the anchor against the new side's line (2.54); and an empty merge label no longer leaves a space after its marker (2.55). The test suite checks both behaviours against whichever git it finds. Before 2.50, `git merge` used histogram whatever `-Xdiff-algorithm` said.
+- **Merges.** hunks reads no git configuration: pass `style` where git would read `merge.conflictStyle`. Like git, it never applies the indent heuristic when merging.
 - **Text and bytes.** Strings are compared as UTF-16 text and headers are cut on UTF-8 byte counts, as git does. For byte-exact output on input that is not valid UTF-8, pass `Uint8Array`s. Options written as text (`anchored`, `ignoreMatchingLines`, `funcname`) behave the same either way.
 - **Size.** Up to 512 MiB a side: the longest string V8 can hold, and where git stops diffing files as text. The CLI shows larger files as binary, as git does.
 - **Function names.** The default rule is git's. git's language-specific patterns come from attributes in a repository; pass `funcname` a `RegExp` for the same effect.
 - **Index lines.** The CLI abbreviates blob ids to 7 characters, as git does outside a repository. Inside a large repository git may use more.
 - **Runtimes.** Node 20 and later, Bun, Deno and current browsers. The package is ESM; `require()` works in Node 20.19+ and 22.12+.
 
-Not covered: comparing directories, rename and copy detection, `--color-moved`, `--word-diff` output, binary patches, and applying patches.
+Not covered: comparing directories, rename and copy detection, `--color-moved`, `--word-diff` output, binary patches, applying patches, and merging binary files.
 
 ## Credits
 
