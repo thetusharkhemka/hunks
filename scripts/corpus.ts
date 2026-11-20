@@ -5,6 +5,7 @@
  *
  * The corpus directory holds pairs of package versions, as extracted npm
  * tarballs: <name>@<v1>/package and <name>@<v2>/package, listed in pairs.txt.
+ * scripts/fetch-corpus.ts downloads it.
  */
 
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';

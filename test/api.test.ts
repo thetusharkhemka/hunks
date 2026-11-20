@@ -273,7 +273,7 @@ describe('input handling', () => {
     assert.deepEqual(edits('naïve\n', enc('naïve\n')), []);
   });
 
-  test('diff() reads bytes as UTF-8 text', () => {
+  test('diff() decodes the text of byte input as UTF-8', () => {
     const d = diff(enc('café\n'), enc('café!\n'));
     assert.deepEqual(d.hunks[0].lines.map((l) => l.text), ['café', 'café!']);
   });

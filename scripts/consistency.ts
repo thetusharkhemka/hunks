@@ -1,5 +1,6 @@
 /**
- * Cross-checks on a corpus of real file pairs (see scripts/corpus.ts):
+ * Cross-checks on a corpus of real file pairs (see scripts/corpus.ts and
+ * scripts/fetch-corpus.ts):
  *
  *   1. patch() on strings equals git's output decoded as UTF-8
  *   2. diff() rebuilt into text equals patch()

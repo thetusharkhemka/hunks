@@ -671,7 +671,9 @@ const MERGE_HELP = `Usage: hunks merge-file [options] <current> <base> <other>
 Merge the changes that lead from <base> to <other> into <current>, the way
 \`git merge-file\` does. The result replaces <current>, or, with -p, goes to
 standard output. Exits with the number of conflicts (at most 127), 255 on
-error and 129 on a usage error, as git does.
+error and 129 on a usage error, as git does. On a terminal, -p shows
+control characters and invisible Unicode as escapes, as hunks does for
+diffs.
 
   -p, --stdout                print the result instead of writing <current>
       --diff3                 also show the base in each conflict

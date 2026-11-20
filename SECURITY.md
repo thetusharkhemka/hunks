@@ -12,8 +12,10 @@ Fixes go into the latest minor release.
 ## What hunks guarantees
 
 **The package runs nothing on install and has no runtime dependencies.**
-The library touches neither the file system nor the network; the CLI reads
-the two files it compares, and its own package.json for `--version`.
+The library touches neither the file system nor the network. The CLI reads
+the files it is given, and its own package.json for `--version`; the only
+file it writes is the first of the three given to `hunks merge-file`,
+which receives the merge unless `-p` is given, as with git.
 
 **Bounded work on hostile input.** Each side may be up to 512 MiB, the
 longest string V8 can hold and the size at which git stops diffing files
